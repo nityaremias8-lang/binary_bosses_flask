@@ -43,6 +43,7 @@ from model.post import Post, init_posts
 from model.microblog import MicroBlog, Topic, initMicroblogs
 from hacks.jokes import initJokes
 from model.titanic import initTitanic  # ← ADDED
+from chatbot import chatbot_bp, init_db
 
 import os
 import requests
@@ -73,6 +74,8 @@ app.register_blueprint(data_export_import_api)
 app.register_blueprint(joke_api)
 app.register_blueprint(post_api)
 app.register_blueprint(titanic_api)  # ← ADDED
+app.register_blueprint(chatbot_bp)
+init_db()
 
 # Jokes file initialization
 with app.app_context():
