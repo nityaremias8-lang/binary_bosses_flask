@@ -45,8 +45,13 @@ from hacks.jokes import initJokes
 from model.titanic import initTitanic  # ← ADDED
 from chatbot import chatbot_bp, init_db
 
+# New imports for Bingo volunteer system
+import sqlite3
+import json
+import uuid
 import os
 import requests
+from datetime import datetime, timedelta
 
 # Load environment variables
 load_dotenv()
@@ -54,6 +59,591 @@ load_dotenv()
 app.config['KASM_SERVER'] = os.getenv('KASM_SERVER')
 app.config['KASM_API_KEY'] = os.getenv('KASM_API_KEY')
 app.config['KASM_API_KEY_SECRET'] = os.getenv('KASM_API_KEY_SECRET')
+
+# ============================================================================
+# BINGO VOLUNTEER DATABASE SYSTEM
+# ============================================================================
+
+class BingoVolunteerDB:
+    """Database for Bingo volunteer signups and management"""
+    
+    def __init__(self):
+        self.db_path = "bingo_volunteers.db"
+        self.init_database()
+    
+    def init_database(self):
+        """Create database tables for volunteer management"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Volunteers table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS volunteers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                volunteer_id TEXT UNIQUE NOT NULL,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                phone TEXT,
+                address TEXT,
+                emergency_contact_name TEXT,
+                emergency_contact_phone TEXT,
+                tshirt_size TEXT,
+                availability TEXT,
+                experience TEXT,
+                notes TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Volunteer availability preferences
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS volunteer_availability (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                volunteer_id TEXT NOT NULL,
+                day_of_week TEXT NOT NULL,
+                time_preference TEXT,
+                FOREIGN KEY (volunteer_id) REFERENCES volunteers(volunteer_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Volunteer roles/preferences
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS volunteer_roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                volunteer_id TEXT NOT NULL,
+                role_name TEXT NOT NULL,
+                FOREIGN KEY (volunteer_id) REFERENCES volunteers(volunteer_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Volunteer schedule/assignments
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS volunteer_schedule (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                volunteer_id TEXT NOT NULL,
+                shift_date DATE NOT NULL,
+                shift_type TEXT,
+                role TEXT,
+                check_in_time TIMESTAMP,
+                check_out_time TIMESTAMP,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (volunteer_id) REFERENCES volunteers(volunteer_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Create indexes
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_volunteer_id ON volunteers(volunteer_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_volunteer_email ON volunteers(email)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_volunteer_status ON volunteers(status)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_schedule_date ON volunteer_schedule(shift_date)')
+        
+        conn.commit()
+        conn.close()
+        print("✅ Bingo Volunteer Database initialized")
+    
+    def add_volunteer(self, volunteer_data):
+        """Add a new volunteer to the database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Generate unique volunteer ID
+            volunteer_id = str(uuid.uuid4())[:8]
+            
+            # Insert volunteer data
+            cursor.execute('''
+                INSERT INTO volunteers (
+                    volunteer_id, first_name, last_name, email, phone, address,
+                    emergency_contact_name, emergency_contact_phone, tshirt_size,
+                    availability, experience, notes, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                volunteer_id,
+                volunteer_data.get('first_name'),
+                volunteer_data.get('last_name'),
+                volunteer_data.get('email'),
+                volunteer_data.get('phone'),
+                volunteer_data.get('address'),
+                volunteer_data.get('emergency_contact_name'),
+                volunteer_data.get('emergency_contact_phone'),
+                volunteer_data.get('tshirt_size'),
+                volunteer_data.get('availability'),
+                volunteer_data.get('experience'),
+                volunteer_data.get('notes'),
+                'pending'  # Default status
+            ))
+            
+            # Add availability preferences if provided
+            availability_days = volunteer_data.get('availability_days', [])
+            if availability_days:
+                for day in availability_days:
+                    cursor.execute('''
+                        INSERT INTO volunteer_availability (volunteer_id, day_of_week)
+                        VALUES (?, ?)
+                    ''', (volunteer_id, day))
+            
+            # Add role preferences if provided
+            preferred_roles = volunteer_data.get('preferred_roles', [])
+            if preferred_roles:
+                for role in preferred_roles:
+                    cursor.execute('''
+                        INSERT INTO volunteer_roles (volunteer_id, role_name)
+                        VALUES (?, ?)
+                    ''', (volunteer_id, role))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'success': True,
+                'volunteer_id': volunteer_id,
+                'message': 'Volunteer application submitted successfully!'
+            }
+            
+        except sqlite3.IntegrityError:
+            return {
+                'success': False,
+                'error': 'A volunteer with this email may already exist.'
+            }
+        except Exception as e:
+            print(f"❌ Error adding volunteer: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def get_volunteer(self, volunteer_id=None, email=None):
+        """Get volunteer information"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            if volunteer_id:
+                cursor.execute('SELECT * FROM volunteers WHERE volunteer_id = ?', (volunteer_id,))
+            elif email:
+                cursor.execute('SELECT * FROM volunteers WHERE email = ?', (email,))
+            else:
+                conn.close()
+                return {
+                    'success': False,
+                    'error': 'No volunteer_id or email provided'
+                }
+            
+            row = cursor.fetchone()
+            if not row:
+                conn.close()
+                return {
+                    'success': False,
+                    'error': 'Volunteer not found'
+                }
+            
+            # Get column names
+            columns = [desc[0] for desc in cursor.description]
+            volunteer = dict(zip(columns, row))
+            
+            # Get availability days
+            cursor.execute('SELECT day_of_week FROM volunteer_availability WHERE volunteer_id = ?', (volunteer_id,))
+            volunteer['availability_days'] = [row[0] for row in cursor.fetchall()]
+            
+            # Get preferred roles
+            cursor.execute('SELECT role_name FROM volunteer_roles WHERE volunteer_id = ?', (volunteer_id,))
+            volunteer['preferred_roles'] = [row[0] for row in cursor.fetchall()]
+            
+            # Get upcoming shifts
+            cursor.execute('''
+                SELECT * FROM volunteer_schedule 
+                WHERE volunteer_id = ? AND shift_date >= date('now')
+                ORDER BY shift_date
+            ''', (volunteer_id,))
+            
+            schedule_rows = cursor.fetchall()
+            if schedule_rows:
+                schedule_columns = [desc[0] for desc in cursor.description]
+                volunteer['upcoming_shifts'] = [dict(zip(schedule_columns, row)) for row in schedule_rows]
+            
+            conn.close()
+            
+            return {
+                'success': True,
+                'volunteer': volunteer
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting volunteer: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def get_all_volunteers(self, status=None):
+        """Get all volunteers, optionally filtered by status"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            if status:
+                cursor.execute('SELECT * FROM volunteers WHERE status = ? ORDER BY created_at DESC', (status,))
+            else:
+                cursor.execute('SELECT * FROM volunteers ORDER BY created_at DESC')
+            
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            
+            volunteers = []
+            for row in rows:
+                volunteer = dict(zip(columns, row))
+                
+                # Get availability days for this volunteer
+                cursor.execute('SELECT day_of_week FROM volunteer_availability WHERE volunteer_id = ?', (volunteer['volunteer_id'],))
+                volunteer['availability_days'] = [r[0] for r in cursor.fetchall()]
+                
+                # Get preferred roles
+                cursor.execute('SELECT role_name FROM volunteer_roles WHERE volunteer_id = ?', (volunteer['volunteer_id'],))
+                volunteer['preferred_roles'] = [r[0] for r in cursor.fetchall()]
+                
+                volunteers.append(volunteer)
+            
+            conn.close()
+            
+            return {
+                'success': True,
+                'count': len(volunteers),
+                'volunteers': volunteers
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting volunteers: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def update_volunteer_status(self, volunteer_id, status):
+        """Update volunteer status (pending, approved, active, inactive)"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE volunteers SET 
+                    status = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE volunteer_id = ?
+            ''', (status, volunteer_id))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'success': True,
+                'message': f'Volunteer status updated to {status}'
+            }
+            
+        except Exception as e:
+            print(f"❌ Error updating volunteer status: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def assign_shift(self, volunteer_id, shift_data):
+        """Assign a shift to a volunteer"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO volunteer_schedule (
+                    volunteer_id, shift_date, shift_type, role, notes
+                ) VALUES (?, ?, ?, ?, ?)
+            ''', (
+                volunteer_id,
+                shift_data.get('shift_date'),
+                shift_data.get('shift_type'),
+                shift_data.get('role'),
+                shift_data.get('notes')
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'success': True,
+                'message': 'Shift assigned successfully'
+            }
+            
+        except Exception as e:
+            print(f"❌ Error assigning shift: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def record_check_in(self, schedule_id):
+        """Record volunteer check-in time"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE volunteer_schedule SET 
+                    check_in_time = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (schedule_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'success': True,
+                'message': 'Check-in recorded'
+            }
+            
+        except Exception as e:
+            print(f"❌ Error recording check-in: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def get_volunteer_stats(self):
+        """Get volunteer statistics"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Total volunteers
+            cursor.execute('SELECT COUNT(*) FROM volunteers')
+            total = cursor.fetchone()[0]
+            
+            # By status
+            cursor.execute('SELECT status, COUNT(*) FROM volunteers GROUP BY status')
+            status_counts = dict(cursor.fetchall())
+            
+            # New this month
+            cursor.execute('''
+                SELECT COUNT(*) FROM volunteers 
+                WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
+            ''')
+            new_this_month = cursor.fetchone()[0]
+            
+            # Upcoming shifts
+            cursor.execute('''
+                SELECT COUNT(*) FROM volunteer_schedule 
+                WHERE shift_date >= date('now')
+            ''')
+            upcoming_shifts = cursor.fetchone()[0]
+            
+            # Volunteers by t-shirt size
+            cursor.execute('SELECT tshirt_size, COUNT(*) FROM volunteers GROUP BY tshirt_size')
+            tshirt_sizes = dict(cursor.fetchall())
+            
+            conn.close()
+            
+            return {
+                'success': True,
+                'stats': {
+                    'total_volunteers': total,
+                    'by_status': status_counts,
+                    'new_this_month': new_this_month,
+                    'upcoming_shifts': upcoming_shifts,
+                    'tshirt_sizes': tshirt_sizes
+                }
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting volunteer stats: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def delete_volunteer(self, volunteer_id):
+        """Delete a volunteer record"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Delete volunteer (cascade will handle related tables)
+            cursor.execute('DELETE FROM volunteers WHERE volunteer_id = ?', (volunteer_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'success': True,
+                'message': 'Volunteer deleted successfully'
+            }
+            
+        except Exception as e:
+            print(f"❌ Error deleting volunteer: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+# Create volunteer database instance
+bingo_db = BingoVolunteerDB()
+
+# ============================================================================
+# BINGO API ENDPOINTS
+# ============================================================================
+
+@app.route('/api/bingo/volunteer', methods=['POST'])
+def add_volunteer():
+    """Add a new volunteer"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['first_name', 'last_name', 'email']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({
+                    'success': False,
+                    'error': f'{field} is required'
+                }), 400
+        
+        result = bingo_db.add_volunteer(data)
+        
+        if result['success']:
+            return jsonify(result), 201
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/bingo/volunteer/<volunteer_id>', methods=['GET'])
+def get_volunteer(volunteer_id):
+    """Get volunteer by ID"""
+    try:
+        result = bingo_db.get_volunteer(volunteer_id=volunteer_id)
+        
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 404
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/bingo/volunteers', methods=['GET'])
+def get_all_volunteers():
+    """Get all volunteers"""
+    try:
+        status = request.args.get('status')
+        result = bingo_db.get_all_volunteers(status)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/bingo/volunteer/<volunteer_id>/status', methods=['PUT'])
+def update_volunteer_status(volunteer_id):
+    """Update volunteer status"""
+    try:
+        data = request.get_json()
+        status = data.get('status')
+        
+        if not status:
+            return jsonify({
+                'success': False,
+                'error': 'Status is required'
+            }), 400
+        
+        result = bingo_db.update_volunteer_status(volunteer_id, status)
+        
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 404
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/bingo/volunteer/<volunteer_id>', methods=['DELETE'])
+@login_required
+def delete_volunteer(volunteer_id):
+    """Delete a volunteer (admin only)"""
+    try:
+        # Check if user is admin
+        if current_user.role != 'Admin':
+            return jsonify({
+                'success': False,
+                'error': 'Unauthorized'
+            }), 403
+        
+        result = bingo_db.delete_volunteer(volunteer_id)
+        
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 404
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/bingo/stats', methods=['GET'])
+def get_bingo_stats():
+    """Get volunteer statistics"""
+    try:
+        result = bingo_db.get_volunteer_stats()
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/bingo/test', methods=['GET'])
+def test_bingo_api():
+    """Test Bingo API endpoint"""
+    return jsonify({
+        'success': True,
+        'message': 'Bingo Volunteer API is running!',
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'endpoints': {
+            'POST /api/bingo/volunteer': 'Submit volunteer application',
+            'GET /api/bingo/volunteer/<id>': 'Get volunteer by ID',
+            'GET /api/bingo/volunteers': 'Get all volunteers',
+            'PUT /api/bingo/volunteer/<id>/status': 'Update volunteer status',
+            'DELETE /api/bingo/volunteer/<id>': 'Delete volunteer (admin)',
+            'GET /api/bingo/stats': 'Get volunteer statistics',
+            'GET /api/bingo/test': 'Test endpoint'
+        }
+    })
+
+# ============================================================================
+# BINGO VOLUNTEER PAGE ROUTE
+# ============================================================================
+
+@app.route('/fopsbingo')
+def fops_bingo():
+    """Friends of Poway Seniors Bingo page"""
+    return render_template("fopsbingo.html")
 
 # register URIs for api endpoints
 app.register_blueprint(python_exec_api)
@@ -287,5 +877,22 @@ app.cli.add_command(custom_cli)
 if __name__ == "__main__":
     host = "0.0.0.0"
     port = app.config['FLASK_PORT']
-    print(f"** Server running: http://localhost:{port}")
+    print("=" * 70)
+    print("🚀 FLASK APPLICATION STARTING")
+    print("=" * 70)
+    print(f"📡 Main Server: http://localhost:{port}")
+    print(f"🎯 Bingo Volunteer Page: http://localhost:{port}/fopsbingo")
+    
+    print("\n🎲 BINGO VOLUNTEER API ENDPOINTS:")
+    print(f"  • POST   http://localhost:{port}/api/bingo/volunteer")
+    print(f"  • GET    http://localhost:{port}/api/bingo/volunteers")
+    print(f"  • GET    http://localhost:{port}/api/bingo/volunteer/<id>")
+    print(f"  • PUT    http://localhost:{port}/api/bingo/volunteer/<id>/status")
+    print(f"  • DELETE http://localhost:{port}/api/bingo/volunteer/<id>")
+    print(f"  • GET    http://localhost:{port}/api/bingo/stats")
+    print(f"  • GET    http://localhost:{port}/api/bingo/test")
+    
+    print("\n📁 Database: bingo_volunteers.db")
+    print("=" * 70)
+    
     app.run(debug=True, host=host, port=port, use_reloader=False)
