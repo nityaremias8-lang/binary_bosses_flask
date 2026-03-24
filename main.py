@@ -7,6 +7,8 @@ from flask.cli import AppGroup
 from flask_login import current_user, login_required
 from flask import current_app
 from dotenv import load_dotenv
+# Add this with your other imports
+from flask_cors import CORS
 
 # import "objects" from "this" project
 from __init__ import app, db, login_manager  # Key Flask objects 
@@ -52,6 +54,9 @@ import uuid
 import os
 import requests
 from datetime import datetime, timedelta
+
+# After app is created, add this line
+CORS(app)  # This enables CORS for all routes
 
 # Load environment variables
 load_dotenv()
