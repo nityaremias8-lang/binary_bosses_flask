@@ -2,7 +2,7 @@ server {
     server_name parking.stu.nighthawkcodingsociety.com;
 
     location /socket.io/ {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://localhost:8304;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -11,7 +11,7 @@ server {
     }
 
     location / {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://localhost:8304;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
     }
