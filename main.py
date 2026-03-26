@@ -58,6 +58,15 @@ from datetime import datetime, timedelta
 # After app is created, add this line
 CORS(app)  # This enables CORS for all routes
 
+CORS(app, supports_credentials=True, resources={
+    r"/api/*": {
+        "origins": [
+            "http://localhost:4500",
+            "http://127.0.0.1:4500"
+        ]
+    }
+}) 
+
 # Load environment variables
 load_dotenv()
 
