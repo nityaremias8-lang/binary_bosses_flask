@@ -1,21 +1,12 @@
 server {
     listen 80;
     listen [::]:80;
-    server_name flask.opencodingsociety.com;
+    server_name fops_b.opencodingsociety.com;
 
-    # Proxy Socket.IO connections to 8500
-    location /socket.io/ {
-        proxy_pass http://localhost:8500;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
 
-    # Proxy all other traffic to Flask app on 8587
+    # Proxy all other traffic to Flask app on 8376
     location / {
-        proxy_pass http://localhost:8587;
+        proxy_pass http://localhost:8376;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
 
@@ -23,9 +14,7 @@ server {
         if ($http_origin ~* "^https://(.*\.)?opencodingsociety\.com$") {
             set $cors_origin $http_origin;
         }
-        if ($http_origin = "https://open-coding-society.github.io") {
-            set $cors_origin $http_origin;
-        }
+
 
         add_header "Access-Control-Allow-Origin" "$cors_origin" always;
         add_header "Access-Control-Allow-Credentials" "true" always;
