@@ -14,7 +14,7 @@ load_dotenv()
 # Setup of key Flask object (app)
 app = Flask(__name__)
 
-# Configure Flask Port, default to 8587 which is same as Docker setup
+# Configure Flask Port, default to 8376 which is same as Docker setup
 app.config['FLASK_PORT'] = int(os.environ.get('FLASK_PORT') or 8376)
 
 # Configure Flask to handle JSON with UTF-8 encoding versus default ASCII
@@ -27,24 +27,24 @@ login_manager.init_app(app)
 
 
 # Allowed servers for cross-origin resource sharing (CORS)
-cors = CORS(
-   app,
-   supports_credentials=True,
-   origins=[
-       'http://localhost:4500',
-       'http://127.0.0.1:4500',
-       'http://localhost:4599',
-       'http://127.0.0.1:4599',
-       'http://localhost:4600',
-       'http://127.0.0.1:4600',
-       'http://localhost:4000',
-       'http://127.0.0.1:4000',
-       'https://open-coding-society.github.io',
-       'https://pages.opencodingsociety.com',
-       'https://fops.opencodingsociety.com'
-   ],
-   methods=["GET", "POST", "PUT", "OPTIONS"]
-)
+# Static allowed origins for local development
+allowed_origins = [
+    'http://localhost:4500',
+    'http://127.0.0.1:4500',
+    'http://localhost:4599',
+    'http://127.0.0.1:4599',
+    'http://localhost:4600',
+    'http://127.0.0.1:4600',
+    'http://localhost:4000',
+    'http://127.0.0.1:4000',
+    'https://open-coding-society.github.io',
+    'https://pages.opencodingsociety.com',
+    'https://fops.opencodingsociety.com',
+    # Regex pattern to match any subdomain of opencodingsociety.com
+    r'https://.*\.opencodingsociety\.com',
+    'https://opencodingsociety.com',
+    'https://acs.opencodingsociety.com',
+]
 
 
 # Admin Defaults
@@ -74,7 +74,7 @@ app.config['MY_ROLE'] = os.environ.get('MY_ROLE') or 'User'
 
 
 # Browser settings
-SECRET_KEY = os.environ.get('SECRET_KEY') or 'SECRET_KEY' # secret key for session management
+SECRET_KEY = os.environ.get('SECRET_KEY') or 'SECRET_KEY'
 SESSION_COOKIE_NAME = os.environ.get('SESSION_COOKIE_NAME') or 'sess_python_flask'
 JWT_TOKEN_NAME = os.environ.get('JWT_TOKEN_NAME') or 'jwt_python_flask'
 app.config['SECRET_KEY'] = SECRET_KEY
@@ -89,17 +89,17 @@ DB_ENDPOINT = os.environ.get('DB_ENDPOINT') or None
 DB_USERNAME = os.environ.get('DB_USERNAME') or None
 DB_PASSWORD = os.environ.get('DB_PASSWORD') or None
 if DB_ENDPOINT and DB_USERNAME and DB_PASSWORD:
-   # Production - Use MySQL
-   DB_PORT = '3306'
-   DB_NAME = dbName
-   dbString = f'mysql+pymysql://{DB_USERNAME}:{DB_PASSWORD}@{DB_ENDPOINT}:{DB_PORT}'
-   dbURI =  dbString + '/' + dbName
-   backupURI = None  # MySQL backup would require a different approach
+    # Production - Use MySQL
+    DB_PORT = '3306'
+    DB_NAME = dbName
+    dbString = f'mysql+pymysql://{DB_USERNAME}:{DB_PASSWORD}@{DB_ENDPOINT}:{DB_PORT}'
+    dbURI = dbString + '/' + dbName
+    backupURI = None  # MySQL backup would require a different approach
 else:
-   # Development - Use SQLite
-   dbString = 'sqlite:///volumes/'
-   dbURI = dbString + dbName + '.db'
-   backupURI = dbString + dbName + '_bak.db'
+    # Development - Use SQLite
+    dbString = 'sqlite:///volumes/'
+    dbURI = dbString + dbName + '.db'
+    backupURI = dbString + dbName + '_bak.db'
 # Set database configuration in Flask app
 app.config['DB_ENDPOINT'] = DB_ENDPOINT
 app.config['DB_USERNAME'] = DB_USERNAME
@@ -111,6 +111,18 @@ app.config['SQLALCHEMY_BACKUP_URI'] = backupURI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
+
+
+# Only enable Flask-CORS in local development
+# In production, nginx handles CORS to avoid duplicate headers
+if not IS_PRODUCTION:
+    cors = CORS(
+        app,
+        supports_credentials=True,
+        allow_origins=allowed_origins,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "X-Origin"],
+    )
 
 
 # Image upload settings
@@ -131,7 +143,7 @@ app.config['GITHUB_TARGET_TYPE'] = os.environ.get('GITHUB_TARGET_TYPE') or 'user
 app.config['GITHUB_TARGET_NAME'] = os.environ.get('GITHUB_TARGET_NAME') or 'open-coding-society'
 
 
-# Gemini API settingsa
+# Gemini API settings
 app.config['GEMINI_SERVER'] = os.environ.get('GEMINI_SERVER') or 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 app.config['GEMINI_API_KEY'] = os.environ.get('GEMINI_API_KEY') or None
 
@@ -145,4 +157,3 @@ app.config['KASM_API_KEY_SECRET'] = os.environ.get('KASM_API_KEY_SECRET') or Non
 # GROQ API settings
 app.config['GROQ_SERVER'] = os.environ.get('GROQ_SERVER') or 'https://api.groq.com/openai/v1/chat/completions'
 app.config['GROQ_API_KEY'] = os.environ.get('GROQ_API_KEY') or None
-
