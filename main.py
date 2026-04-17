@@ -47,7 +47,7 @@ from hacks.jokes import initJokes
 from model.titanic import initTitanic  # ← ADDED
 from chatbot import chatbot_bp, init_db
 
-# New imports for Bingo volunteer system
+# New imports for volunteer systems
 import sqlite3
 import json
 import uuid
@@ -500,8 +500,311 @@ class BingoVolunteerDB:
                 'error': str(e)
             }
 
-# Create volunteer database instance
+# ============================================================================
+# RERUNS SHOPPE VOLUNTEER DATABASE SYSTEM
+# ============================================================================
+
+class ReRunsVolunteerDB:
+    """Database for ReRuns Shoppe volunteer signups and management"""
+    
+    def __init__(self):
+        self.db_path = "reruns_volunteers.db"
+        self.init_database()
+    
+    def init_database(self):
+        """Create database tables for ReRuns Shoppe volunteer management"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # ReRuns Volunteers table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reruns_volunteers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                volunteer_id TEXT UNIQUE NOT NULL,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                phone TEXT,
+                availability TEXT,
+                preferred_roles TEXT,
+                experience TEXT,
+                program TEXT DEFAULT 'ReRuns Shoppe',
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # ReRuns Volunteer availability preferences (detailed)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reruns_availability (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                volunteer_id TEXT NOT NULL,
+                day_of_week TEXT NOT NULL,
+                FOREIGN KEY (volunteer_id) REFERENCES reruns_volunteers(volunteer_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # ReRuns Volunteer roles
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reruns_roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                volunteer_id TEXT NOT NULL,
+                role_name TEXT NOT NULL,
+                FOREIGN KEY (volunteer_id) REFERENCES reruns_volunteers(volunteer_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Create indexes
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_reruns_volunteer_id ON reruns_volunteers(volunteer_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_reruns_email ON reruns_volunteers(email)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_reruns_status ON reruns_volunteers(status)')
+        
+        conn.commit()
+        conn.close()
+        print("✅ ReRuns Shoppe Volunteer Database initialized")
+    
+    def add_volunteer(self, volunteer_data):
+        """Add a new ReRuns volunteer to the database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Generate unique volunteer ID
+            volunteer_id = str(uuid.uuid4())[:8]
+            
+            # Insert volunteer data
+            cursor.execute('''
+                INSERT INTO reruns_volunteers (
+                    volunteer_id, first_name, last_name, email, phone,
+                    availability, preferred_roles, experience, program, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                volunteer_id,
+                volunteer_data.get('first_name'),
+                volunteer_data.get('last_name'),
+                volunteer_data.get('email'),
+                volunteer_data.get('phone'),
+                volunteer_data.get('availability'),
+                volunteer_data.get('preferred_roles'),
+                volunteer_data.get('experience'),
+                'ReRuns Shoppe',
+                'pending'
+            ))
+            
+            # Add availability days if provided
+            availability_days = volunteer_data.get('availability_days', [])
+            if availability_days:
+                for day in availability_days:
+                    cursor.execute('''
+                        INSERT INTO reruns_availability (volunteer_id, day_of_week)
+                        VALUES (?, ?)
+                    ''', (volunteer_id, day))
+            
+            # Add preferred roles if provided
+            preferred_roles_list = volunteer_data.get('preferred_roles_list', [])
+            if preferred_roles_list:
+                for role in preferred_roles_list:
+                    cursor.execute('''
+                        INSERT INTO reruns_roles (volunteer_id, role_name)
+                        VALUES (?, ?)
+                    ''', (volunteer_id, role))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'success': True,
+                'volunteer_id': volunteer_id,
+                'message': 'Thank you for volunteering with ReRuns Shoppe! We will contact you soon.'
+            }
+            
+        except sqlite3.IntegrityError:
+            return {
+                'success': False,
+                'error': 'A volunteer with this email already exists.'
+            }
+        except Exception as e:
+            print(f"❌ Error adding ReRuns volunteer: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def get_volunteer(self, volunteer_id=None, email=None):
+        """Get ReRuns volunteer information"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            if volunteer_id:
+                cursor.execute('SELECT * FROM reruns_volunteers WHERE volunteer_id = ?', (volunteer_id,))
+            elif email:
+                cursor.execute('SELECT * FROM reruns_volunteers WHERE email = ?', (email,))
+            else:
+                conn.close()
+                return {
+                    'success': False,
+                    'error': 'No volunteer_id or email provided'
+                }
+            
+            row = cursor.fetchone()
+            if not row:
+                conn.close()
+                return {
+                    'success': False,
+                    'error': 'Volunteer not found'
+                }
+            
+            columns = [desc[0] for desc in cursor.description]
+            volunteer = dict(zip(columns, row))
+            
+            # Get availability days
+            cursor.execute('SELECT day_of_week FROM reruns_availability WHERE volunteer_id = ?', (volunteer_id,))
+            volunteer['availability_days'] = [row[0] for row in cursor.fetchall()]
+            
+            # Get roles
+            cursor.execute('SELECT role_name FROM reruns_roles WHERE volunteer_id = ?', (volunteer_id,))
+            volunteer['roles_list'] = [row[0] for row in cursor.fetchall()]
+            
+            conn.close()
+            
+            return {
+                'success': True,
+                'volunteer': volunteer
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting ReRuns volunteer: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def get_all_volunteers(self, status=None):
+        """Get all ReRuns volunteers"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            if status:
+                cursor.execute('SELECT * FROM reruns_volunteers WHERE status = ? ORDER BY created_at DESC', (status,))
+            else:
+                cursor.execute('SELECT * FROM reruns_volunteers ORDER BY created_at DESC')
+            
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            
+            volunteers = []
+            for row in rows:
+                volunteer = dict(zip(columns, row))
+                volunteers.append(volunteer)
+            
+            conn.close()
+            
+            return {
+                'success': True,
+                'count': len(volunteers),
+                'volunteers':志愿者们
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting ReRuns volunteers: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def update_volunteer_status(self, volunteer_id, status):
+        """Update ReRuns volunteer status"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE reruns_volunteers SET 
+                    status = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE volunteer_id = ?
+            ''', (status, volunteer_id))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'success': True,
+                'message': f'Volunteer status updated to {status}'
+            }
+            
+        except Exception as e:
+            print(f"❌ Error updating ReRuns volunteer status: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def get_volunteer_stats(self):
+        """Get ReRuns volunteer statistics"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('SELECT COUNT(*) FROM reruns_volunteers')
+            total = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT status, COUNT(*) FROM reruns_volunteers GROUP BY status')
+            status_counts = dict(cursor.fetchall())
+            
+            cursor.execute('''
+                SELECT COUNT(*) FROM reruns_volunteers 
+                WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
+            ''')
+            new_this_month = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            return {
+                'success': True,
+                'stats': {
+                    'total_volunteers': total,
+                    'by_status': status_counts,
+                    'new_this_month': new_this_month
+                }
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting ReRuns volunteer stats: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def delete_volunteer(self, volunteer_id):
+        """Delete a ReRuns volunteer record"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('DELETE FROM reruns_volunteers WHERE volunteer_id = ?', (volunteer_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                'success': True,
+                'message': 'Volunteer deleted successfully'
+            }
+            
+        except Exception as e:
+            print(f"❌ Error deleting ReRuns volunteer: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+# Create volunteer database instances
 bingo_db = BingoVolunteerDB()
+reruns_db = ReRunsVolunteerDB()
 
 # ============================================================================
 # BINGO API ENDPOINTS
@@ -651,13 +954,187 @@ def test_bingo_api():
     })
 
 # ============================================================================
-# BINGO VOLUNTEER PAGE ROUTE
+# RERUNS SHOPPE API ENDPOINTS
+# ============================================================================
+
+@app.route('/api/reruns/volunteer', methods=['POST'])
+def add_reruns_volunteer():
+    """Add a new ReRuns Shoppe volunteer"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['first_name', 'last_name', 'email']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({
+                    'success': False,
+                    'error': f'{field} is required'
+                }), 400
+        
+        # Process availability days
+        availability_days = data.get('availability_days', [])
+        data['availability'] = ', '.join(availability_days) if availability_days else ''
+        
+        # Process preferred roles
+        preferred_roles_list = data.get('preferred_roles', [])
+        data['preferred_roles'] = ', '.join(preferred_roles_list) if preferred_roles_list else ''
+        data['preferred_roles_list'] = preferred_roles_list
+        
+        result = reruns_db.add_volunteer(data)
+        
+        if result['success']:
+            return jsonify(result), 201
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/reruns/volunteer/<volunteer_id>', methods=['GET'])
+def get_reruns_volunteer(volunteer_id):
+    """Get ReRuns volunteer by ID"""
+    try:
+        result = reruns_db.get_volunteer(volunteer_id=volunteer_id)
+        
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 404
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/reruns/volunteers', methods=['GET'])
+def get_all_reruns_volunteers():
+    """Get all ReRuns volunteers"""
+    try:
+        status = request.args.get('status')
+        result = reruns_db.get_all_volunteers(status)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/reruns/volunteer/<volunteer_id>/status', methods=['PUT'])
+@login_required
+def update_reruns_volunteer_status(volunteer_id):
+    """Update ReRuns volunteer status (admin only)"""
+    try:
+        if current_user.role != 'Admin':
+            return jsonify({
+                'success': False,
+                'error': 'Unauthorized'
+            }), 403
+            
+        data = request.get_json()
+        status = data.get('status')
+        
+        if not status:
+            return jsonify({
+                'success': False,
+                'error': 'Status is required'
+            }), 400
+        
+        result = reruns_db.update_volunteer_status(volunteer_id, status)
+        
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 404
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/reruns/volunteer/<volunteer_id>', methods=['DELETE'])
+@login_required
+def delete_reruns_volunteer(volunteer_id):
+    """Delete a ReRuns volunteer (admin only)"""
+    try:
+        if current_user.role != 'Admin':
+            return jsonify({
+                'success': False,
+                'error': 'Unauthorized'
+            }), 403
+        
+        result = reruns_db.delete_volunteer(volunteer_id)
+        
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 404
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/reruns/stats', methods=['GET'])
+@login_required
+def get_reruns_stats():
+    """Get ReRuns volunteer statistics (admin only)"""
+    try:
+        if current_user.role != 'Admin':
+            return jsonify({
+                'success': False,
+                'error': 'Unauthorized'
+            }), 403
+            
+        result = reruns_db.get_volunteer_stats()
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/reruns/test', methods=['GET'])
+def test_reruns_api():
+    """Test ReRuns API endpoint"""
+    return jsonify({
+        'success': True,
+        'message': 'ReRuns Shoppe Volunteer API is running!',
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'endpoints': {
+            'POST /api/reruns/volunteer': 'Submit ReRuns volunteer application',
+            'GET /api/reruns/volunteer/<id>': 'Get ReRuns volunteer by ID',
+            'GET /api/reruns/volunteers': 'Get all ReRuns volunteers',
+            'PUT /api/reruns/volunteer/<id>/status': 'Update volunteer status (admin)',
+            'DELETE /api/reruns/volunteer/<id>': 'Delete volunteer (admin)',
+            'GET /api/reruns/stats': 'Get volunteer statistics (admin)',
+            'GET /api/reruns/test': 'Test endpoint'
+        }
+    })
+
+# ============================================================================
+# VOLUNTEER PAGE ROUTES
 # ============================================================================
 
 @app.route('/fopsbingo')
 def fops_bingo():
     """Friends of Poway Seniors Bingo page"""
     return render_template("fopsbingo.html")
+
+@app.route('/fopsshop')
+def fops_shop():
+    """ReRuns Shoppe page"""
+    return render_template("fopsshop.html")
 
 # register URIs for api endpoints
 app.register_blueprint(python_exec_api)
@@ -896,6 +1373,7 @@ if __name__ == "__main__":
     print("=" * 70)
     print(f"📡 Main Server: http://localhost:{port}")
     print(f"🎯 Bingo Volunteer Page: http://localhost:{port}/fopsbingo")
+    print(f"🛍️ ReRuns Shoppe Page: http://localhost:{port}/fopsshop")
     
     print("\n🎲 BINGO VOLUNTEER API ENDPOINTS:")
     print(f"  • POST   http://localhost:{port}/api/bingo/volunteer")
@@ -906,7 +1384,16 @@ if __name__ == "__main__":
     print(f"  • GET    http://localhost:{port}/api/bingo/stats")
     print(f"  • GET    http://localhost:{port}/api/bingo/test")
     
-    print("\n📁 Database: bingo_volunteers.db")
+    print("\n🛍️ RERUNS SHOPPE API ENDPOINTS:")
+    print(f"  • POST   http://localhost:{port}/api/reruns/volunteer")
+    print(f"  • GET    http://localhost:{port}/api/reruns/volunteers")
+    print(f"  • GET    http://localhost:{port}/api/reruns/volunteer/<id>")
+    print(f"  • PUT    http://localhost:{port}/api/reruns/volunteer/<id>/status (admin)")
+    print(f"  • DELETE http://localhost:{port}/api/reruns/volunteer/<id> (admin)")
+    print(f"  • GET    http://localhost:{port}/api/reruns/stats (admin)")
+    print(f"  • GET    http://localhost:{port}/api/reruns/test")
+    
+    print("\n📁 Databases: bingo_volunteers.db, reruns_volunteers.db")
     print("=" * 70)
     
     app.run(debug=True, host=host, port=port, use_reloader=False)
