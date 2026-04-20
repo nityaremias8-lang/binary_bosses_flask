@@ -28,11 +28,11 @@ from api.classroom_api import classroom_api
 from api.data_export_import_api import data_export_import_api
 from hacks.joke import joke_api
 from api.post import post_api
-from api.titanic import titanic_api  # ← ADDED
+from api.titanic import titanic_api
 
 # database Initialization functions
 from model.user import User, initUsers
-from model.user import Section;
+from model.user import Section
 from model.github import GitHubUser
 from model.feedback import Feedback
 from api.analytics import get_date_range
@@ -44,7 +44,7 @@ from model.persona import Persona, initPersonas, initPersonaUsers
 from model.post import Post, init_posts
 from model.microblog import MicroBlog, Topic, initMicroblogs
 from hacks.jokes import initJokes
-from model.titanic import initTitanic  # ← ADDED
+from model.titanic import initTitanic
 from chatbot import chatbot_bp, init_db
 
 # New imports for volunteer systems
@@ -56,16 +56,18 @@ import requests
 from datetime import datetime, timedelta
 
 # After app is created, add this line
-CORS(app)  # This enables CORS for all routes
+CORS(app)
 
 CORS(app, supports_credentials=True, resources={
     r"/api/*": {
         "origins": [
             "http://localhost:4500",
-            "http://127.0.0.1:4500"
+            "http://127.0.0.1:4500",
+            "http://localhost:8376",
+            "http://127.0.0.1:8376"
         ]
     }
-}) 
+})
 
 # Load environment variables
 load_dotenv()
@@ -90,7 +92,6 @@ class BingoVolunteerDB:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Volunteers table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS volunteers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,7 +113,6 @@ class BingoVolunteerDB:
             )
         ''')
         
-        # Volunteer availability preferences
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS volunteer_availability (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,7 +123,6 @@ class BingoVolunteerDB:
             )
         ''')
         
-        # Volunteer roles/preferences
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS volunteer_roles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,7 +132,6 @@ class BingoVolunteerDB:
             )
         ''')
         
-        # Volunteer schedule/assignments
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS volunteer_schedule (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,7 +147,6 @@ class BingoVolunteerDB:
             )
         ''')
         
-        # Create indexes
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_volunteer_id ON volunteers(volunteer_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_volunteer_email ON volunteers(email)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_volunteer_status ON volunteers(status)')
@@ -157,18 +154,14 @@ class BingoVolunteerDB:
         
         conn.commit()
         conn.close()
-        print("✅ Bingo Volunteer Database initialized")
+        print(" Bingo Volunteer Database initialized")
     
     def add_volunteer(self, volunteer_data):
-        """Add a new volunteer to the database"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
-            # Generate unique volunteer ID
             volunteer_id = str(uuid.uuid4())[:8]
             
-            # Insert volunteer data
             cursor.execute('''
                 INSERT INTO volunteers (
                     volunteer_id, first_name, last_name, email, phone, address,
@@ -188,117 +181,63 @@ class BingoVolunteerDB:
                 volunteer_data.get('availability'),
                 volunteer_data.get('experience'),
                 volunteer_data.get('notes'),
-                'pending'  # Default status
+                'pending'
             ))
             
-            # Add availability preferences if provided
             availability_days = volunteer_data.get('availability_days', [])
             if availability_days:
                 for day in availability_days:
-                    cursor.execute('''
-                        INSERT INTO volunteer_availability (volunteer_id, day_of_week)
-                        VALUES (?, ?)
-                    ''', (volunteer_id, day))
+                    cursor.execute('INSERT INTO volunteer_availability (volunteer_id, day_of_week) VALUES (?, ?)', (volunteer_id, day))
             
-            # Add role preferences if provided
             preferred_roles = volunteer_data.get('preferred_roles', [])
             if preferred_roles:
                 for role in preferred_roles:
-                    cursor.execute('''
-                        INSERT INTO volunteer_roles (volunteer_id, role_name)
-                        VALUES (?, ?)
-                    ''', (volunteer_id, role))
+                    cursor.execute('INSERT INTO volunteer_roles (volunteer_id, role_name) VALUES (?, ?)', (volunteer_id, role))
             
             conn.commit()
             conn.close()
             
-            return {
-                'success': True,
-                'volunteer_id': volunteer_id,
-                'message': 'Volunteer application submitted successfully!'
-            }
-            
+            return {'success': True, 'volunteer_id': volunteer_id, 'message': 'Volunteer application submitted successfully!'}
         except sqlite3.IntegrityError:
-            return {
-                'success': False,
-                'error': 'A volunteer with this email may already exist.'
-            }
+            return {'success': False, 'error': 'A volunteer with this email may already exist.'}
         except Exception as e:
-            print(f"❌ Error adding volunteer: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
     
     def get_volunteer(self, volunteer_id=None, email=None):
-        """Get volunteer information"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
             if volunteer_id:
                 cursor.execute('SELECT * FROM volunteers WHERE volunteer_id = ?', (volunteer_id,))
             elif email:
                 cursor.execute('SELECT * FROM volunteers WHERE email = ?', (email,))
             else:
                 conn.close()
-                return {
-                    'success': False,
-                    'error': 'No volunteer_id or email provided'
-                }
+                return {'success': False, 'error': 'No volunteer_id or email provided'}
             
             row = cursor.fetchone()
             if not row:
                 conn.close()
-                return {
-                    'success': False,
-                    'error': 'Volunteer not found'
-                }
+                return {'success': False, 'error': 'Volunteer not found'}
             
-            # Get column names
             columns = [desc[0] for desc in cursor.description]
             volunteer = dict(zip(columns, row))
             
-            # Get availability days
             cursor.execute('SELECT day_of_week FROM volunteer_availability WHERE volunteer_id = ?', (volunteer_id,))
             volunteer['availability_days'] = [row[0] for row in cursor.fetchall()]
             
-            # Get preferred roles
             cursor.execute('SELECT role_name FROM volunteer_roles WHERE volunteer_id = ?', (volunteer_id,))
             volunteer['preferred_roles'] = [row[0] for row in cursor.fetchall()]
             
-            # Get upcoming shifts
-            cursor.execute('''
-                SELECT * FROM volunteer_schedule 
-                WHERE volunteer_id = ? AND shift_date >= date('now')
-                ORDER BY shift_date
-            ''', (volunteer_id,))
-            
-            schedule_rows = cursor.fetchall()
-            if schedule_rows:
-                schedule_columns = [desc[0] for desc in cursor.description]
-                volunteer['upcoming_shifts'] = [dict(zip(schedule_columns, row)) for row in schedule_rows]
-            
             conn.close()
-            
-            return {
-                'success': True,
-                'volunteer': volunteer
-            }
-            
+            return {'success': True, 'volunteer': volunteer}
         except Exception as e:
-            print(f"❌ Error getting volunteer: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
     
     def get_all_volunteers(self, status=None):
-        """Get all volunteers, optionally filtered by status"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
             if status:
                 cursor.execute('SELECT * FROM volunteers WHERE status = ? ORDER BY created_at DESC', (status,))
             else:
@@ -306,199 +245,51 @@ class BingoVolunteerDB:
             
             rows = cursor.fetchall()
             columns = [desc[0] for desc in cursor.description]
-            
             volunteers = []
             for row in rows:
                 volunteer = dict(zip(columns, row))
-                
-                # Get availability days for this volunteer
-                cursor.execute('SELECT day_of_week FROM volunteer_availability WHERE volunteer_id = ?', (volunteer['volunteer_id'],))
-                volunteer['availability_days'] = [r[0] for r in cursor.fetchall()]
-                
-                # Get preferred roles
-                cursor.execute('SELECT role_name FROM volunteer_roles WHERE volunteer_id = ?', (volunteer['volunteer_id'],))
-                volunteer['preferred_roles'] = [r[0] for r in cursor.fetchall()]
-                
                 volunteers.append(volunteer)
             
             conn.close()
-            
-            return {
-                'success': True,
-                'count': len(volunteers),
-                'volunteers': volunteers
-            }
-            
+            return {'success': True, 'count': len(volunteers), 'volunteers': volunteers}
         except Exception as e:
-            print(f"❌ Error getting volunteers: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
     
     def update_volunteer_status(self, volunteer_id, status):
-        """Update volunteer status (pending, approved, active, inactive)"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE volunteers SET 
-                    status = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE volunteer_id = ?
-            ''', (status, volunteer_id))
-            
+            cursor.execute('UPDATE volunteers SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE volunteer_id = ?', (status, volunteer_id))
             conn.commit()
             conn.close()
-            
-            return {
-                'success': True,
-                'message': f'Volunteer status updated to {status}'
-            }
-            
+            return {'success': True, 'message': f'Volunteer status updated to {status}'}
         except Exception as e:
-            print(f"❌ Error updating volunteer status: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
-    def assign_shift(self, volunteer_id, shift_data):
-        """Assign a shift to a volunteer"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO volunteer_schedule (
-                    volunteer_id, shift_date, shift_type, role, notes
-                ) VALUES (?, ?, ?, ?, ?)
-            ''', (
-                volunteer_id,
-                shift_data.get('shift_date'),
-                shift_data.get('shift_type'),
-                shift_data.get('role'),
-                shift_data.get('notes')
-            ))
-            
-            conn.commit()
-            conn.close()
-            
-            return {
-                'success': True,
-                'message': 'Shift assigned successfully'
-            }
-            
-        except Exception as e:
-            print(f"❌ Error assigning shift: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
-    def record_check_in(self, schedule_id):
-        """Record volunteer check-in time"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE volunteer_schedule SET 
-                    check_in_time = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (schedule_id,))
-            
-            conn.commit()
-            conn.close()
-            
-            return {
-                'success': True,
-                'message': 'Check-in recorded'
-            }
-            
-        except Exception as e:
-            print(f"❌ Error recording check-in: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
-    def get_volunteer_stats(self):
-        """Get volunteer statistics"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Total volunteers
-            cursor.execute('SELECT COUNT(*) FROM volunteers')
-            total = cursor.fetchone()[0]
-            
-            # By status
-            cursor.execute('SELECT status, COUNT(*) FROM volunteers GROUP BY status')
-            status_counts = dict(cursor.fetchall())
-            
-            # New this month
-            cursor.execute('''
-                SELECT COUNT(*) FROM volunteers 
-                WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
-            ''')
-            new_this_month = cursor.fetchone()[0]
-            
-            # Upcoming shifts
-            cursor.execute('''
-                SELECT COUNT(*) FROM volunteer_schedule 
-                WHERE shift_date >= date('now')
-            ''')
-            upcoming_shifts = cursor.fetchone()[0]
-            
-            # Volunteers by t-shirt size
-            cursor.execute('SELECT tshirt_size, COUNT(*) FROM volunteers GROUP BY tshirt_size')
-            tshirt_sizes = dict(cursor.fetchall())
-            
-            conn.close()
-            
-            return {
-                'success': True,
-                'stats': {
-                    'total_volunteers': total,
-                    'by_status': status_counts,
-                    'new_this_month': new_this_month,
-                    'upcoming_shifts': upcoming_shifts,
-                    'tshirt_sizes': tshirt_sizes
-                }
-            }
-            
-        except Exception as e:
-            print(f"❌ Error getting volunteer stats: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
     
     def delete_volunteer(self, volunteer_id):
-        """Delete a volunteer record"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
-            # Delete volunteer (cascade will handle related tables)
             cursor.execute('DELETE FROM volunteers WHERE volunteer_id = ?', (volunteer_id,))
-            
             conn.commit()
             conn.close()
-            
-            return {
-                'success': True,
-                'message': 'Volunteer deleted successfully'
-            }
-            
+            return {'success': True, 'message': 'Volunteer deleted successfully'}
         except Exception as e:
-            print(f"❌ Error deleting volunteer: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
+    
+    def get_volunteer_stats(self):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM volunteers')
+            total = cursor.fetchone()[0]
+            cursor.execute('SELECT status, COUNT(*) FROM volunteers GROUP BY status')
+            status_counts = dict(cursor.fetchall())
+            conn.close()
+            return {'success': True, 'stats': {'total_volunteers': total, 'by_status': status_counts}}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
 
 # ============================================================================
 # RERUNS SHOPPE VOLUNTEER DATABASE SYSTEM
@@ -512,11 +303,9 @@ class ReRunsVolunteerDB:
         self.init_database()
     
     def init_database(self):
-        """Create database tables for ReRuns Shoppe volunteer management"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # ReRuns Volunteers table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS reruns_volunteers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -535,7 +324,6 @@ class ReRunsVolunteerDB:
             )
         ''')
         
-        # ReRuns Volunteer availability preferences (detailed)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS reruns_availability (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -545,7 +333,6 @@ class ReRunsVolunteerDB:
             )
         ''')
         
-        # ReRuns Volunteer roles
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS reruns_roles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -555,25 +342,20 @@ class ReRunsVolunteerDB:
             )
         ''')
         
-        # Create indexes
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_reruns_volunteer_id ON reruns_volunteers(volunteer_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_reruns_email ON reruns_volunteers(email)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_reruns_status ON reruns_volunteers(status)')
         
         conn.commit()
         conn.close()
-        print("✅ ReRuns Shoppe Volunteer Database initialized")
+        print(" ReRuns Shoppe Volunteer Database initialized")
     
     def add_volunteer(self, volunteer_data):
-        """Add a new ReRuns volunteer to the database"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
-            # Generate unique volunteer ID
             volunteer_id = str(uuid.uuid4())[:8]
             
-            # Insert volunteer data
             cursor.execute('''
                 INSERT INTO reruns_volunteers (
                     volunteer_id, first_name, last_name, email, phone,
@@ -592,101 +374,29 @@ class ReRunsVolunteerDB:
                 'pending'
             ))
             
-            # Add availability days if provided
             availability_days = volunteer_data.get('availability_days', [])
             if availability_days:
                 for day in availability_days:
-                    cursor.execute('''
-                        INSERT INTO reruns_availability (volunteer_id, day_of_week)
-                        VALUES (?, ?)
-                    ''', (volunteer_id, day))
+                    cursor.execute('INSERT INTO reruns_availability (volunteer_id, day_of_week) VALUES (?, ?)', (volunteer_id, day))
             
-            # Add preferred roles if provided
             preferred_roles_list = volunteer_data.get('preferred_roles_list', [])
             if preferred_roles_list:
                 for role in preferred_roles_list:
-                    cursor.execute('''
-                        INSERT INTO reruns_roles (volunteer_id, role_name)
-                        VALUES (?, ?)
-                    ''', (volunteer_id, role))
+                    cursor.execute('INSERT INTO reruns_roles (volunteer_id, role_name) VALUES (?, ?)', (volunteer_id, role))
             
             conn.commit()
             conn.close()
             
-            return {
-                'success': True,
-                'volunteer_id': volunteer_id,
-                'message': 'Thank you for volunteering with ReRuns Shoppe! We will contact you soon.'
-            }
-            
+            return {'success': True, 'volunteer_id': volunteer_id, 'message': 'Thank you for volunteering with ReRuns Shoppe! We will contact you soon.'}
         except sqlite3.IntegrityError:
-            return {
-                'success': False,
-                'error': 'A volunteer with this email already exists.'
-            }
+            return {'success': False, 'error': 'A volunteer with this email already exists.'}
         except Exception as e:
-            print(f"❌ Error adding ReRuns volunteer: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
-    def get_volunteer(self, volunteer_id=None, email=None):
-        """Get ReRuns volunteer information"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            if volunteer_id:
-                cursor.execute('SELECT * FROM reruns_volunteers WHERE volunteer_id = ?', (volunteer_id,))
-            elif email:
-                cursor.execute('SELECT * FROM reruns_volunteers WHERE email = ?', (email,))
-            else:
-                conn.close()
-                return {
-                    'success': False,
-                    'error': 'No volunteer_id or email provided'
-                }
-            
-            row = cursor.fetchone()
-            if not row:
-                conn.close()
-                return {
-                    'success': False,
-                    'error': 'Volunteer not found'
-                }
-            
-            columns = [desc[0] for desc in cursor.description]
-            volunteer = dict(zip(columns, row))
-            
-            # Get availability days
-            cursor.execute('SELECT day_of_week FROM reruns_availability WHERE volunteer_id = ?', (volunteer_id,))
-            volunteer['availability_days'] = [row[0] for row in cursor.fetchall()]
-            
-            # Get roles
-            cursor.execute('SELECT role_name FROM reruns_roles WHERE volunteer_id = ?', (volunteer_id,))
-            volunteer['roles_list'] = [row[0] for row in cursor.fetchall()]
-            
-            conn.close()
-            
-            return {
-                'success': True,
-                'volunteer': volunteer
-            }
-            
-        except Exception as e:
-            print(f"❌ Error getting ReRuns volunteer: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
     
     def get_all_volunteers(self, status=None):
-        """Get all ReRuns volunteers"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
             if status:
                 cursor.execute('SELECT * FROM reruns_volunteers WHERE status = ? ORDER BY created_at DESC', (status,))
             else:
@@ -694,117 +404,281 @@ class ReRunsVolunteerDB:
             
             rows = cursor.fetchall()
             columns = [desc[0] for desc in cursor.description]
-            
-            volunteers = []
-            for row in rows:
-                volunteer = dict(zip(columns, row))
-                volunteers.append(volunteer)
-            
+            volunteers = [dict(zip(columns, row)) for row in rows]
             conn.close()
-            
-            return {
-                'success': True,
-                'count': len(volunteers),
-                'volunteers':志愿者们
-            }
-            
+            return {'success': True, 'count': len(volunteers), 'volunteers': volunteers}
         except Exception as e:
-            print(f"❌ Error getting ReRuns volunteers: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
     
     def update_volunteer_status(self, volunteer_id, status):
-        """Update ReRuns volunteer status"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
-            cursor.execute('''
-                UPDATE reruns_volunteers SET 
-                    status = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE volunteer_id = ?
-            ''', (status, volunteer_id))
-            
+            cursor.execute('UPDATE reruns_volunteers SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE volunteer_id = ?', (status, volunteer_id))
             conn.commit()
             conn.close()
-            
-            return {
-                'success': True,
-                'message': f'Volunteer status updated to {status}'
-            }
-            
+            return {'success': True, 'message': f'Volunteer status updated to {status}'}
         except Exception as e:
-            print(f"❌ Error updating ReRuns volunteer status: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
-    def get_volunteer_stats(self):
-        """Get ReRuns volunteer statistics"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('SELECT COUNT(*) FROM reruns_volunteers')
-            total = cursor.fetchone()[0]
-            
-            cursor.execute('SELECT status, COUNT(*) FROM reruns_volunteers GROUP BY status')
-            status_counts = dict(cursor.fetchall())
-            
-            cursor.execute('''
-                SELECT COUNT(*) FROM reruns_volunteers 
-                WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
-            ''')
-            new_this_month = cursor.fetchone()[0]
-            
-            conn.close()
-            
-            return {
-                'success': True,
-                'stats': {
-                    'total_volunteers': total,
-                    'by_status': status_counts,
-                    'new_this_month': new_this_month
-                }
-            }
-            
-        except Exception as e:
-            print(f"❌ Error getting ReRuns volunteer stats: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
     
     def delete_volunteer(self, volunteer_id):
-        """Delete a ReRuns volunteer record"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
             cursor.execute('DELETE FROM reruns_volunteers WHERE volunteer_id = ?', (volunteer_id,))
+            conn.commit()
+            conn.close()
+            return {'success': True, 'message': 'Volunteer deleted successfully'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def get_volunteer_stats(self):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM reruns_volunteers')
+            total = cursor.fetchone()[0]
+            cursor.execute('SELECT status, COUNT(*) FROM reruns_volunteers GROUP BY status')
+            status_counts = dict(cursor.fetchall())
+            conn.close()
+            return {'success': True, 'stats': {'total_volunteers': total, 'by_status': status_counts}}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+
+# ============================================================================
+# SOCIAL LUNCH VOLUNTEER DATABASE SYSTEM
+# ============================================================================
+
+class SocialLunchVolunteerDB:
+    """Database for Social Lunch volunteer signups and lunch reservations"""
+    
+    def __init__(self):
+        self.db_path = "social_lunch_volunteers.db"
+        self.init_database()
+    
+    def init_database(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Social Lunch Volunteers table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS social_lunch_volunteers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                volunteer_id TEXT UNIQUE NOT NULL,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                phone TEXT,
+                availability TEXT,
+                preferred_roles TEXT,
+                experience TEXT,
+                dietary_restrictions TEXT,
+                program TEXT DEFAULT 'Social Lunch',
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Social Lunch Availability
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS social_lunch_availability (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                volunteer_id TEXT NOT NULL,
+                day_of_week TEXT NOT NULL,
+                FOREIGN KEY (volunteer_id) REFERENCES social_lunch_volunteers(volunteer_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Social Lunch Roles
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS social_lunch_roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                volunteer_id TEXT NOT NULL,
+                role_name TEXT NOT NULL,
+                FOREIGN KEY (volunteer_id) REFERENCES social_lunch_volunteers(volunteer_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Lunch Reservations table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS lunch_reservations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reservation_id TEXT UNIQUE NOT NULL,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                phone TEXT,
+                reservation_date DATE NOT NULL,
+                number_of_guests INTEGER DEFAULT 1,
+                dietary_restrictions TEXT,
+                status TEXT DEFAULT 'confirmed',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_social_volunteer_id ON social_lunch_volunteers(volunteer_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_social_email ON social_lunch_volunteers(email)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_social_status ON social_lunch_volunteers(status)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_reservation_date ON lunch_reservations(reservation_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_reservation_email ON lunch_reservations(email)')
+        
+        conn.commit()
+        conn.close()
+        print(" Social Lunch Volunteer Database initialized")
+    
+    def add_volunteer(self, volunteer_data):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            volunteer_id = str(uuid.uuid4())[:8]
+            
+            cursor.execute('''
+                INSERT INTO social_lunch_volunteers (
+                    volunteer_id, first_name, last_name, email, phone,
+                    availability, preferred_roles, experience, dietary_restrictions, program, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                volunteer_id,
+                volunteer_data.get('first_name'),
+                volunteer_data.get('last_name'),
+                volunteer_data.get('email'),
+                volunteer_data.get('phone'),
+                volunteer_data.get('availability'),
+                volunteer_data.get('preferred_roles'),
+                volunteer_data.get('experience'),
+                volunteer_data.get('dietary_restrictions'),
+                'Social Lunch',
+                'pending'
+            ))
+            
+            availability_days = volunteer_data.get('availability_days', [])
+            if availability_days:
+                for day in availability_days:
+                    cursor.execute('INSERT INTO social_lunch_availability (volunteer_id, day_of_week) VALUES (?, ?)', (volunteer_id, day))
+            
+            preferred_roles_list = volunteer_data.get('preferred_roles_list', [])
+            if preferred_roles_list:
+                for role in preferred_roles_list:
+                    cursor.execute('INSERT INTO social_lunch_roles (volunteer_id, role_name) VALUES (?, ?)', (volunteer_id, role))
             
             conn.commit()
             conn.close()
             
-            return {
-                'success': True,
-                'message': 'Volunteer deleted successfully'
-            }
-            
+            return {'success': True, 'volunteer_id': volunteer_id, 'message': 'Thank you for volunteering with Social Lunch! We will contact you soon.'}
+        except sqlite3.IntegrityError:
+            return {'success': False, 'error': 'A volunteer with this email already exists.'}
         except Exception as e:
-            print(f"❌ Error deleting ReRuns volunteer: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
+    
+    def add_reservation(self, reservation_data):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            reservation_id = str(uuid.uuid4())[:8]
+            
+            cursor.execute('''
+                INSERT INTO lunch_reservations (
+                    reservation_id, first_name, last_name, email, phone,
+                    reservation_date, number_of_guests, dietary_restrictions, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                reservation_id,
+                reservation_data.get('first_name'),
+                reservation_data.get('last_name'),
+                reservation_data.get('email'),
+                reservation_data.get('phone'),
+                reservation_data.get('reservation_date'),
+                reservation_data.get('number_of_guests', 1),
+                reservation_data.get('dietary_restrictions'),
+                'confirmed'
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            return {'success': True, 'reservation_id': reservation_id, 'message': 'Lunch reservation confirmed! Please arrive by 11:30 AM.'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def get_all_volunteers(self, status=None):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            if status:
+                cursor.execute('SELECT * FROM social_lunch_volunteers WHERE status = ? ORDER BY created_at DESC', (status,))
+            else:
+                cursor.execute('SELECT * FROM social_lunch_volunteers ORDER BY created_at DESC')
+            
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            volunteers = [dict(zip(columns, row)) for row in rows]
+            conn.close()
+            return {'success': True, 'count': len(volunteers), 'volunteers': volunteers}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def get_reservations(self, date=None):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            if date:
+                cursor.execute('SELECT * FROM lunch_reservations WHERE reservation_date = ? ORDER BY created_at DESC', (date,))
+            else:
+                cursor.execute('SELECT * FROM lunch_reservations ORDER BY reservation_date DESC, created_at DESC')
+            
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            reservations = [dict(zip(columns, row)) for row in rows]
+            conn.close()
+            return {'success': True, 'count': len(reservations), 'reservations': reservations}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def update_volunteer_status(self, volunteer_id, status):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('UPDATE social_lunch_volunteers SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE volunteer_id = ?', (status, volunteer_id))
+            conn.commit()
+            conn.close()
+            return {'success': True, 'message': f'Volunteer status updated to {status}'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def delete_volunteer(self, volunteer_id):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM social_lunch_volunteers WHERE volunteer_id = ?', (volunteer_id,))
+            conn.commit()
+            conn.close()
+            return {'success': True, 'message': 'Volunteer deleted successfully'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    
+    def get_volunteer_stats(self):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM social_lunch_volunteers')
+            total = cursor.fetchone()[0]
+            cursor.execute('SELECT status, COUNT(*) FROM social_lunch_volunteers GROUP BY status')
+            status_counts = dict(cursor.fetchall())
+            cursor.execute('SELECT COUNT(*) FROM lunch_reservations WHERE reservation_date >= date("now")')
+            upcoming_reservations = cursor.fetchone()[0]
+            conn.close()
+            return {'success': True, 'stats': {'total_volunteers': total, 'by_status': status_counts, 'upcoming_reservations': upcoming_reservations}}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
 
 # Create volunteer database instances
 bingo_db = BingoVolunteerDB()
 reruns_db = ReRunsVolunteerDB()
+social_lunch_db = SocialLunchVolunteerDB()
+
 
 # ============================================================================
 # BINGO API ENDPOINTS
@@ -812,146 +686,56 @@ reruns_db = ReRunsVolunteerDB()
 
 @app.route('/api/bingo/volunteer', methods=['POST'])
 def add_volunteer():
-    """Add a new volunteer"""
     try:
         data = request.get_json()
-        
-        # Validate required fields
         required_fields = ['first_name', 'last_name', 'email']
         for field in required_fields:
             if field not in data or not data[field]:
-                return jsonify({
-                    'success': False,
-                    'error': f'{field} is required'
-                }), 400
+                return jsonify({'success': False, 'error': f'{field} is required'}), 400
         
         result = bingo_db.add_volunteer(data)
-        
         if result['success']:
             return jsonify(result), 201
-        else:
-            return jsonify(result), 400
-            
+        return jsonify(result), 400
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/bingo/volunteer/<volunteer_id>', methods=['GET'])
-def get_volunteer(volunteer_id):
-    """Get volunteer by ID"""
-    try:
-        result = bingo_db.get_volunteer(volunteer_id=volunteer_id)
-        
-        if result['success']:
-            return jsonify(result)
-        else:
-            return jsonify(result), 404
-            
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/bingo/volunteers', methods=['GET'])
 def get_all_volunteers():
-    """Get all volunteers"""
     try:
         status = request.args.get('status')
         result = bingo_db.get_all_volunteers(status)
-        
         return jsonify(result)
-        
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/bingo/volunteer/<volunteer_id>/status', methods=['PUT'])
+@login_required
 def update_volunteer_status(volunteer_id):
-    """Update volunteer status"""
     try:
+        if current_user.role != 'Admin':
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
         data = request.get_json()
         status = data.get('status')
-        
         if not status:
-            return jsonify({
-                'success': False,
-                'error': 'Status is required'
-            }), 400
-        
+            return jsonify({'success': False, 'error': 'Status is required'}), 400
         result = bingo_db.update_volunteer_status(volunteer_id, status)
-        
-        if result['success']:
-            return jsonify(result)
-        else:
-            return jsonify(result), 404
-            
+        return jsonify(result)
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/bingo/volunteer/<volunteer_id>', methods=['DELETE'])
-@login_required
-def delete_volunteer(volunteer_id):
-    """Delete a volunteer (admin only)"""
-    try:
-        # Check if user is admin
-        if current_user.role != 'Admin':
-            return jsonify({
-                'success': False,
-                'error': 'Unauthorized'
-            }), 403
-        
-        result = bingo_db.delete_volunteer(volunteer_id)
-        
-        if result['success']:
-            return jsonify(result)
-        else:
-            return jsonify(result), 404
-            
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/bingo/stats', methods=['GET'])
 def get_bingo_stats():
-    """Get volunteer statistics"""
     try:
         result = bingo_db.get_volunteer_stats()
-        
         return jsonify(result)
-        
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/bingo/test', methods=['GET'])
 def test_bingo_api():
-    """Test Bingo API endpoint"""
-    return jsonify({
-        'success': True,
-        'message': 'Bingo Volunteer API is running!',
-        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'endpoints': {
-            'POST /api/bingo/volunteer': 'Submit volunteer application',
-            'GET /api/bingo/volunteer/<id>': 'Get volunteer by ID',
-            'GET /api/bingo/volunteers': 'Get all volunteers',
-            'PUT /api/bingo/volunteer/<id>/status': 'Update volunteer status',
-            'DELETE /api/bingo/volunteer/<id>': 'Delete volunteer (admin)',
-            'GET /api/bingo/stats': 'Get volunteer statistics',
-            'GET /api/bingo/test': 'Test endpoint'
-        }
-    })
+    return jsonify({'success': True, 'message': 'Bingo Volunteer API is running!', 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
 
 # ============================================================================
 # RERUNS SHOPPE API ENDPOINTS
@@ -959,182 +743,181 @@ def test_bingo_api():
 
 @app.route('/api/reruns/volunteer', methods=['POST'])
 def add_reruns_volunteer():
-    """Add a new ReRuns Shoppe volunteer"""
     try:
         data = request.get_json()
-        
-        # Validate required fields
         required_fields = ['first_name', 'last_name', 'email']
         for field in required_fields:
             if field not in data or not data[field]:
-                return jsonify({
-                    'success': False,
-                    'error': f'{field} is required'
-                }), 400
+                return jsonify({'success': False, 'error': f'{field} is required'}), 400
         
-        # Process availability days
         availability_days = data.get('availability_days', [])
         data['availability'] = ', '.join(availability_days) if availability_days else ''
         
-        # Process preferred roles
         preferred_roles_list = data.get('preferred_roles', [])
         data['preferred_roles'] = ', '.join(preferred_roles_list) if preferred_roles_list else ''
         data['preferred_roles_list'] = preferred_roles_list
         
         result = reruns_db.add_volunteer(data)
-        
         if result['success']:
             return jsonify(result), 201
-        else:
-            return jsonify(result), 400
-            
+        return jsonify(result), 400
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/reruns/volunteer/<volunteer_id>', methods=['GET'])
-def get_reruns_volunteer(volunteer_id):
-    """Get ReRuns volunteer by ID"""
-    try:
-        result = reruns_db.get_volunteer(volunteer_id=volunteer_id)
-        
-        if result['success']:
-            return jsonify(result)
-        else:
-            return jsonify(result), 404
-            
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reruns/volunteers', methods=['GET'])
 def get_all_reruns_volunteers():
-    """Get all ReRuns volunteers"""
     try:
         status = request.args.get('status')
         result = reruns_db.get_all_volunteers(status)
-        
         return jsonify(result)
-        
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reruns/volunteer/<volunteer_id>/status', methods=['PUT'])
 @login_required
 def update_reruns_volunteer_status(volunteer_id):
-    """Update ReRuns volunteer status (admin only)"""
     try:
         if current_user.role != 'Admin':
-            return jsonify({
-                'success': False,
-                'error': 'Unauthorized'
-            }), 403
-            
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
         data = request.get_json()
         status = data.get('status')
-        
         if not status:
-            return jsonify({
-                'success': False,
-                'error': 'Status is required'
-            }), 400
-        
+            return jsonify({'success': False, 'error': 'Status is required'}), 400
         result = reruns_db.update_volunteer_status(volunteer_id, status)
-        
-        if result['success']:
-            return jsonify(result)
-        else:
-            return jsonify(result), 404
-            
+        return jsonify(result)
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/reruns/volunteer/<volunteer_id>', methods=['DELETE'])
-@login_required
-def delete_reruns_volunteer(volunteer_id):
-    """Delete a ReRuns volunteer (admin only)"""
-    try:
-        if current_user.role != 'Admin':
-            return jsonify({
-                'success': False,
-                'error': 'Unauthorized'
-            }), 403
-        
-        result = reruns_db.delete_volunteer(volunteer_id)
-        
-        if result['success']:
-            return jsonify(result)
-        else:
-            return jsonify(result), 404
-            
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reruns/stats', methods=['GET'])
 @login_required
 def get_reruns_stats():
-    """Get ReRuns volunteer statistics (admin only)"""
     try:
         if current_user.role != 'Admin':
-            return jsonify({
-                'success': False,
-                'error': 'Unauthorized'
-            }), 403
-            
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
         result = reruns_db.get_volunteer_stats()
-        
         return jsonify(result)
-        
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/reruns/test', methods=['GET'])
 def test_reruns_api():
-    """Test ReRuns API endpoint"""
-    return jsonify({
-        'success': True,
-        'message': 'ReRuns Shoppe Volunteer API is running!',
-        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'endpoints': {
-            'POST /api/reruns/volunteer': 'Submit ReRuns volunteer application',
-            'GET /api/reruns/volunteer/<id>': 'Get ReRuns volunteer by ID',
-            'GET /api/reruns/volunteers': 'Get all ReRuns volunteers',
-            'PUT /api/reruns/volunteer/<id>/status': 'Update volunteer status (admin)',
-            'DELETE /api/reruns/volunteer/<id>': 'Delete volunteer (admin)',
-            'GET /api/reruns/stats': 'Get volunteer statistics (admin)',
-            'GET /api/reruns/test': 'Test endpoint'
-        }
-    })
+    return jsonify({'success': True, 'message': 'ReRuns Shoppe Volunteer API is running!', 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
 
 # ============================================================================
-# VOLUNTEER PAGE ROUTES
+# SOCIAL LUNCH API ENDPOINTS
+# ============================================================================
+
+@app.route('/api/social-lunch/volunteer', methods=['POST'])
+def add_social_lunch_volunteer():
+    try:
+        data = request.get_json()
+        required_fields = ['first_name', 'last_name', 'email']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({'success': False, 'error': f'{field} is required'}), 400
+        
+        availability_days = data.get('availability_days', [])
+        data['availability'] = ', '.join(availability_days) if availability_days else ''
+        
+        preferred_roles_list = data.get('preferred_roles', [])
+        data['preferred_roles'] = ', '.join(preferred_roles_list) if preferred_roles_list else ''
+        data['preferred_roles_list'] = preferred_roles_list
+        
+        result = social_lunch_db.add_volunteer(data)
+        if result['success']:
+            return jsonify(result), 201
+        return jsonify(result), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/social-lunch/reserve', methods=['POST'])
+def add_lunch_reservation():
+    try:
+        data = request.get_json()
+        required_fields = ['first_name', 'last_name', 'email', 'reservation_date']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({'success': False, 'error': f'{field} is required'}), 400
+        
+        result = social_lunch_db.add_reservation(data)
+        if result['success']:
+            return jsonify(result), 201
+        return jsonify(result), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/social-lunch/volunteers', methods=['GET'])
+@login_required
+def get_all_social_lunch_volunteers():
+    try:
+        if current_user.role != 'Admin':
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        status = request.args.get('status')
+        result = social_lunch_db.get_all_volunteers(status)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/social-lunch/reservations', methods=['GET'])
+@login_required
+def get_lunch_reservations():
+    try:
+        if current_user.role != 'Admin':
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        date = request.args.get('date')
+        result = social_lunch_db.get_reservations(date)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/social-lunch/volunteer/<volunteer_id>/status', methods=['PUT'])
+@login_required
+def update_social_lunch_volunteer_status(volunteer_id):
+    try:
+        if current_user.role != 'Admin':
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        data = request.get_json()
+        status = data.get('status')
+        if not status:
+            return jsonify({'success': False, 'error': 'Status is required'}), 400
+        result = social_lunch_db.update_volunteer_status(volunteer_id, status)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/social-lunch/stats', methods=['GET'])
+@login_required
+def get_social_lunch_stats():
+    try:
+        if current_user.role != 'Admin':
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        result = social_lunch_db.get_volunteer_stats()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/social-lunch/test', methods=['GET'])
+def test_social_lunch_api():
+    return jsonify({'success': True, 'message': 'Social Lunch API is running!', 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
+
+# ============================================================================
+# PAGE ROUTES
 # ============================================================================
 
 @app.route('/fopsbingo')
 def fops_bingo():
-    """Friends of Poway Seniors Bingo page"""
     return render_template("fopsbingo.html")
 
 @app.route('/fopsshop')
 def fops_shop():
-    """ReRuns Shoppe page"""
     return render_template("fopsshop.html")
+
+@app.route('/fopslunchmd')
+def fops_lunch():
+    return render_template("fopslunchmd.html")
+
 
 # register URIs for api endpoints
 app.register_blueprint(python_exec_api)
@@ -1142,7 +925,7 @@ app.register_blueprint(javascript_exec_api)
 app.register_blueprint(user_api)
 app.register_blueprint(section_api)
 app.register_blueprint(persona_api)
-app.register_blueprint(pfp_api) 
+app.register_blueprint(pfp_api)
 app.register_blueprint(groq_api)
 app.register_blueprint(gemini_api)
 app.register_blueprint(microblog_api)
@@ -1154,7 +937,7 @@ app.register_blueprint(feedback_api)
 app.register_blueprint(data_export_import_api)
 app.register_blueprint(joke_api)
 app.register_blueprint(post_api)
-app.register_blueprint(titanic_api)  # ← ADDED
+app.register_blueprint(titanic_api)
 app.register_blueprint(chatbot_bp)
 init_db()
 
@@ -1269,18 +1052,11 @@ def kasm_users():
 
     try:
         url = f"{SERVER}/api/public/get_users"
-        data = {
-            "api_key": API_KEY,
-            "api_key_secret": API_KEY_SECRET
-        }
+        data = {"api_key": API_KEY, "api_key_secret": API_KEY_SECRET}
         response = requests.post(url, json=data, timeout=10)
 
         if response.status_code != 200:
-            return render_template(
-                'error.html', 
-                message='Failed to get users', 
-                code=response.status_code
-            ), response.status_code
+            return render_template('error.html', message='Failed to get users', code=response.status_code), response.status_code
 
         users = response.json().get('users', [])
         for user in users:
@@ -1290,18 +1066,11 @@ def kasm_users():
             except ValueError:
                 user['last_session'] = None
 
-        sorted_users = sorted(
-            users, 
-            key=lambda x: x['last_session'] or datetime.min, 
-            reverse=True
-        )
+        sorted_users = sorted(users, key=lambda x: x['last_session'] or datetime.min, reverse=True)
         return render_template('kasm_users.html', users=sorted_users)
 
     except requests.RequestException as e:
-        return render_template(
-            'error.html', 
-            message=f"Error connecting to KASM API: {str(e)}"
-        ), 500
+        return render_template('error.html', message=f"Error connecting to KASM API: {str(e)}"), 500
         
 @app.route('/delete_user/<user_id>', methods=['DELETE'])
 def delete_user_kasm(user_id):
@@ -1317,12 +1086,7 @@ def delete_user_kasm(user_id):
 
     try:
         url = f"{SERVER}/api/public/delete_user"
-        data = {
-            "api_key": API_KEY,
-            "api_key_secret": API_KEY_SECRET,
-            "target_user": {"user_id": user_id},
-            "force": False
-        }
+        data = {"api_key": API_KEY, "api_key_secret": API_KEY_SECRET, "target_user": {"user_id": user_id}, "force": False}
         response = requests.post(url, json=data)
 
         if response.status_code == 200:
@@ -1339,61 +1103,56 @@ def update_user(uid):
         return jsonify({'error': 'Unauthorized'}), 403
 
     data = request.get_json()
-    print(f"Request Data: {data}")
-
     user = User.query.filter_by(_uid=uid).first()
     if user:
-        print(f"Found user: {user.uid}")
         user.update(data)
         return jsonify({"message": "User updated successfully."}), 200
     else:
-        print("User not found.")
         return jsonify({"message": "User not found."}), 404
 
 # Create an AppGroup for custom commands
 custom_cli = AppGroup('custom', help='Custom commands')
 
-# Define a command to run the data generation functions
 @custom_cli.command('generate_data')
 def generate_data():
     initUsers()
     initMicroblogs()
     initPersonas()
     initPersonaUsers()
-    initTitanic()  # ← ADDED
+    initTitanic()
 
-# Register the custom command group with the Flask application
 app.cli.add_command(custom_cli)
         
 if __name__ == "__main__":
     host = "0.0.0.0"
     port = app.config['FLASK_PORT']
     print("=" * 70)
-    print("🚀 FLASK APPLICATION STARTING")
+    print(" FLASK APPLICATION STARTING")
     print("=" * 70)
-    print(f"📡 Main Server: http://localhost:{port}")
-    print(f"🎯 Bingo Volunteer Page: http://localhost:{port}/fopsbingo")
-    print(f"🛍️ ReRuns Shoppe Page: http://localhost:{port}/fopsshop")
+    print(f" Main Server: http://localhost:{port}")
+    print(f" Bingo Volunteer Page: http://localhost:{port}/fopsbingo")
+    print(f" ReRuns Shoppe Page: http://localhost:{port}/fopsshop")
+    print(f" Social Lunch Page: http://localhost:{port}/fopslunchmd")
     
-    print("\n🎲 BINGO VOLUNTEER API ENDPOINTS:")
-    print(f"  • POST   http://localhost:{port}/api/bingo/volunteer")
-    print(f"  • GET    http://localhost:{port}/api/bingo/volunteers")
-    print(f"  • GET    http://localhost:{port}/api/bingo/volunteer/<id>")
-    print(f"  • PUT    http://localhost:{port}/api/bingo/volunteer/<id>/status")
-    print(f"  • DELETE http://localhost:{port}/api/bingo/volunteer/<id>")
-    print(f"  • GET    http://localhost:{port}/api/bingo/stats")
-    print(f"  • GET    http://localhost:{port}/api/bingo/test")
+    print("\n BINGO VOLUNTEER API ENDPOINTS:")
+    print(f"  POST   http://localhost:{port}/api/bingo/volunteer")
+    print(f"  GET    http://localhost:{port}/api/bingo/volunteers")
+    print(f"  GET    http://localhost:{port}/api/bingo/test")
     
-    print("\n🛍️ RERUNS SHOPPE API ENDPOINTS:")
-    print(f"  • POST   http://localhost:{port}/api/reruns/volunteer")
-    print(f"  • GET    http://localhost:{port}/api/reruns/volunteers")
-    print(f"  • GET    http://localhost:{port}/api/reruns/volunteer/<id>")
-    print(f"  • PUT    http://localhost:{port}/api/reruns/volunteer/<id>/status (admin)")
-    print(f"  • DELETE http://localhost:{port}/api/reruns/volunteer/<id> (admin)")
-    print(f"  • GET    http://localhost:{port}/api/reruns/stats (admin)")
-    print(f"  • GET    http://localhost:{port}/api/reruns/test")
+    print("\n RERUNS SHOPPE API ENDPOINTS:")
+    print(f"  POST   http://localhost:{port}/api/reruns/volunteer")
+    print(f"  GET    http://localhost:{port}/api/reruns/volunteers")
+    print(f"  GET    http://localhost:{port}/api/reruns/test")
     
-    print("\n📁 Databases: bingo_volunteers.db, reruns_volunteers.db")
+    print("\n SOCIAL LUNCH API ENDPOINTS:")
+    print(f"  POST   http://localhost:{port}/api/social-lunch/volunteer")
+    print(f"  POST   http://localhost:{port}/api/social-lunch/reserve")
+    print(f"  GET    http://localhost:{port}/api/social-lunch/volunteers (admin)")
+    print(f"  GET    http://localhost:{port}/api/social-lunch/reservations (admin)")
+    print(f"  GET    http://localhost:{port}/api/social-lunch/stats (admin)")
+    print(f"  GET    http://localhost:{port}/api/social-lunch/test")
+    
+    print("\n Databases: bingo_volunteers.db, reruns_volunteers.db, social_lunch_volunteers.db")
     print("=" * 70)
     
     app.run(debug=True, host=host, port=port, use_reloader=False)
