@@ -55,6 +55,14 @@ import os
 import requests
 from datetime import datetime, timedelta
 
+# Google Gemini for chatbot
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    print("⚠️ google-generativeai not installed. Install with: pip install google-generativeai")
+
 # After app is created, add this line
 CORS(app)
 
@@ -64,7 +72,9 @@ CORS(app, supports_credentials=True, resources={
             "http://localhost:4500",
             "http://127.0.0.1:4500",
             "http://localhost:8376",
-            "http://127.0.0.1:8376"
+            "http://127.0.0.1:8376",
+            "http://localhost:4000",
+            "http://127.0.0.1:4000"
         ]
     }
 })
@@ -75,6 +85,19 @@ load_dotenv()
 app.config['KASM_SERVER'] = os.getenv('KASM_SERVER')
 app.config['KASM_API_KEY'] = os.getenv('KASM_API_KEY')
 app.config['KASM_API_KEY_SECRET'] = os.getenv('KASM_API_KEY_SECRET')
+
+# Configure Gemini if API key is available
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+if GEMINI_API_KEY and GEMINI_AVAILABLE:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-pro')
+    print("✅ Gemini AI configured for chatbot")
+else:
+    model = None
+    if not GEMINI_API_KEY:
+        print("⚠️ GEMINI_API_KEY not found. Chatbot will use fallback responses.")
+    elif not GEMINI_AVAILABLE:
+        print("⚠️ google-generativeai package not installed.")
 
 # ============================================================================
 # BINGO VOLUNTEER DATABASE SYSTEM
@@ -154,7 +177,7 @@ class BingoVolunteerDB:
         
         conn.commit()
         conn.close()
-        print(" Bingo Volunteer Database initialized")
+        print("✅ Bingo Volunteer Database initialized")
     
     def add_volunteer(self, volunteer_data):
         try:
@@ -348,7 +371,7 @@ class ReRunsVolunteerDB:
         
         conn.commit()
         conn.close()
-        print(" ReRuns Shoppe Volunteer Database initialized")
+        print("✅ ReRuns Shoppe Volunteer Database initialized")
     
     def add_volunteer(self, volunteer_data):
         try:
@@ -526,7 +549,7 @@ class SocialLunchVolunteerDB:
         
         conn.commit()
         conn.close()
-        print(" Social Lunch Volunteer Database initialized")
+        print("✅ Social Lunch Volunteer Database initialized")
     
     def add_volunteer(self, volunteer_data):
         try:
@@ -903,6 +926,138 @@ def test_social_lunch_api():
 
 
 # ============================================================================
+# CHATBOT API ENDPOINTS
+# ============================================================================
+
+def get_fallback_response(message):
+    """Keyword-based responses when Gemini is unavailable"""
+    message_lower = message.lower()
+    
+    # BINGO questions
+    if any(word in message_lower for word in ['bingo', 'bingo schedule', 'bingo time', 'bingo cost', 'bingo price']):
+        return "🎱 **BINGO Schedule:**\n• Every Tuesday and Thursday\n• Doors open at 12:00 PM\n• Games start at 1:00 PM\n• Cost: $10 for a 10-pack of cards\n• Location: Poway Senior Center, 13094 Civic Center Dr\n\nCome join us for fun and prizes! All proceeds support our senior programs."
+    
+    # Social Lunch questions
+    elif any(word in message_lower for word in ['lunch', 'social lunch', 'meal', 'food', 'lunch cost']):
+        return "🍽️ **Social Lunch:**\n• Monday-Friday, 11:30 AM - 1:00 PM\n• Reservations required by 1:00 PM the day before\n• Cost: $5 for seniors, $7 for non-seniors\n• Location: 13094 Civic Center Dr, Poway, CA 92064\n\nChef Charlie prepares delicious hot meals daily!"
+    
+    # Reservation questions
+    elif any(word in message_lower for word in ['reserve', 'reservation', 'rsvp', 'sign up for lunch', 'book lunch']):
+        return "📅 **To make a lunch reservation:**\n1. Go to our Social Lunch page (/fopslunch)\n2. Click 'Make a Reservation' tab\n3. Fill out the form with your name, email, and date\n\n⚠️ Reservations must be made by 1:00 PM the day before!\n\nYou'll receive a confirmation with your reservation ID."
+    
+    # ReRuns Shoppe
+    elif any(word in message_lower for word in ['reruns', 'shop', 'thrift', 'store', 'reruns shoppe']):
+        return "🛍️ **ReRuns Shoppe:**\n• Wednesday - Saturday: 10:00 AM - 4:00 PM\n• Location: 13094 Civic Center Dr, Poway, CA\n• All proceeds support senior programs\n• Donations accepted during business hours\n• Find great deals on clothing, furniture, books, and more!"
+    
+    # Volunteer questions
+    elif any(word in message_lower for word in ['volunteer', 'help', 'volunteering', 'volunteer opportunity']):
+        return "🤝 **Volunteer Opportunities:**\n\n**BINGO:** Setup, card sales, verification, cleanup\n**Social Lunch:** Serving, greeting, setup/cleanup, kitchen assistant\n**ReRuns Shoppe:** Stocking, cashiering, sorting donations, customer service\n\nVisit our individual program pages to sign up! Training provided."
+    
+    # Donation questions
+    elif any(word in message_lower for word in ['donate', 'donation', 'give', 'contribute', 'support']):
+        return "❤️ **Support FOPS:**\n\n**Monetary Donations:**\n• Click the 'Donate' button on our website\n• Mail checks to: Friends of Poway Seniors, 13094 Civic Center Dr, Poway, CA 92064\n\n**Item Donations:**\n• Bring to ReRuns Shoppe during business hours\n• Accepting clothing, furniture, housewares, books\n\nEvery donation helps our seniors! FOPS is a 501(c)(3) organization."
+    
+    # Hours/location
+    elif any(word in message_lower for word in ['hours', 'open', 'when', 'location', 'address', 'where']):
+        return "📍 **Location & Hours:**\n\n**Address:**\n13094 Civic Center Dr, Poway, CA 92064\n\n**Office Hours:**\nMonday-Friday 9:00 AM - 3:00 PM\n\n**Phone:** (858) 668-4689\n\n**Email:** info@friendsofpowayseniors.org"
+    
+    # Event Predictor
+    elif any(word in message_lower for word in ['predictor', 'prediction', 'event predictor', 'attendance']):
+        return "🤖 **Event Predictor:**\nOur AI-powered event predictor helps forecast attendance for BINGO and Social Lunch events. Find it in the Events dropdown menu!\n\nIt uses historical data to help us plan seating and food quantities."
+    
+    # Contact
+    elif any(word in message_lower for word in ['contact', 'call', 'email', 'phone', 'reach']):
+        return "📞 **Contact Us:**\n\n• **Phone:** (858) 668-4689\n• **Email:** info@friendsofpowayseniors.org\n• **Address:** 13094 Civic Center Dr, Poway, CA 92064\n• **Office Hours:** Monday-Friday 9 AM - 3 PM\n\nFeel free to call or email with any questions!"
+    
+    # About FOPS
+    elif any(word in message_lower for word in ['about', 'mission', 'vision', 'what is fops', 'organization']):
+        return "🌿 **About Friends of Poway Seniors (FOPS):**\n\n**Mission:** To support our seniors and marginalized communities by providing volunteer opportunities, access to material provisions and monetary support for municipal-run senior programming.\n\n**Vision:** For our seniors, and community-at-large to engage in, benefit from, and enjoy life to its fullest.\n\nWe're a volunteer-driven 501(c)(3) nonprofit!"
+    
+    # Default greeting/help
+    elif any(word in message_lower for word in ['hello', 'hi', 'hey', 'greeting', 'good morning', 'good afternoon']):
+        return "👋 Hello! I'm the FOPS Assistant. I can help you with:\n\n🎱 BINGO schedule and information\n🍽️ Social Lunch reservations\n🛍️ ReRuns Shoppe hours and donations\n🤝 Volunteer opportunities\n❤️ Making donations\n📞 Contact information\n🌿 Our mission and programs\n\nWhat would you like to know?"
+    
+    # Anything else
+    else:
+        return "I'm here to help with Friends of Poway Seniors! You can ask me about:\n\n🎱 **BINGO** - schedule, cost, location\n🍽️ **Social Lunch** - hours, cost, reservations\n🛍️ **ReRuns Shoppe** - hours, donations\n🤝 **Volunteering** - opportunities, how to sign up\n❤️ **Donations** - how to give\n📞 **Contact info** - phone, email, address\n🌿 **About FOPS** - mission and vision\n\nWhat would you like to learn more about?"
+
+@app.route('/api/chat', methods=['POST', 'OPTIONS'])
+def chat_endpoint():
+    """Chatbot endpoint for FOPS assistant"""
+    if request.method == 'OPTIONS':
+        # Handle CORS preflight
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        return response
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'reply': "Hello! How can I help you today?"}), 200
+            
+        messages = data.get('messages', [])
+        
+        if not messages:
+            return jsonify({'reply': "Hello! How can I help you today?"}), 200
+        
+        # Get the last user message
+        last_user_message = None
+        for msg in reversed(messages):
+            if msg.get('role') == 'user':
+                last_user_message = msg.get('content', '').lower()
+                break
+        
+        if not last_user_message:
+            return jsonify({'reply': "I'm here to help with FOPS events, BINGO, Social Lunch, and volunteering. What would you like to know?"}), 200
+        
+        # Try Gemini first if available
+        if model and GEMINI_API_KEY:
+            try:
+                context = f"""You are a helpful, friendly assistant for Friends of Poway Seniors (FOPS) in Poway, California. 
+                
+                KEY INFORMATION ABOUT FOPS:
+                - BINGO: Every Tuesday and Thursday at 1:00 PM, doors at 12:00 PM. Cost: $10 for 10 cards.
+                - Social Lunch: Monday-Friday 11:30 AM-1:00 PM. $5 seniors, $7 non-seniors. Reservations required by 1 PM day before.
+                - ReRuns Shoppe: Thrift store open Wednesday-Saturday 10 AM-4 PM. All proceeds support seniors.
+                - Volunteering: Opportunities in BINGO, Social Lunch, and ReRuns Shoppe.
+                - Donations: Online via website or in-kind at ReRuns Shoppe.
+                - Contact: (858) 668-4689, 13094 Civic Center Dr, Poway, CA 92064.
+                - Mission: Support seniors and marginalized communities through volunteer opportunities and programming.
+                
+                Keep responses concise (2-3 sentences when possible), friendly, and helpful. Use emojis occasionally.
+                
+                User question: {last_user_message}
+                """
+                
+                response = model.generate_content(context)
+                reply = response.text.strip()
+                return jsonify({'reply': reply}), 200
+            except Exception as e:
+                print(f"Gemini error: {e}")
+                # Fall through to keyword matching
+        
+        # Fallback: keyword-based responses
+        reply = get_fallback_response(last_user_message)
+        return jsonify({'reply': reply}), 200
+        
+    except Exception as e:
+        print(f"Chat endpoint error: {e}")
+        return jsonify({'reply': "📞 I'm having trouble connecting right now. Please call us at (858) 668-4689 for immediate help! Our office hours are Monday-Friday 9 AM to 3 PM."}), 200
+
+@app.route('/api/chat/test', methods=['GET'])
+def test_chat_api():
+    """Test endpoint for chatbot"""
+    return jsonify({
+        'success': True, 
+        'message': 'Chatbot API is running!', 
+        'gemini_available': model is not None,
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+
+
+# ============================================================================
 # PAGE ROUTES
 # ============================================================================
 
@@ -1125,26 +1280,32 @@ app.cli.add_command(custom_cli)
         
 if __name__ == "__main__":
     host = "0.0.0.0"
-    port = app.config['FLASK_PORT']
+    # Set port to 8376
+    port = 8376
     print("=" * 70)
-    print(" FLASK APPLICATION STARTING")
+    print(" FLASK APPLICATION STARTING ON PORT 8376")
     print("=" * 70)
     print(f" Main Server: http://localhost:{port}")
     print(f" Bingo Volunteer Page: http://localhost:{port}/fopsbingo")
     print(f" ReRuns Shoppe Page: http://localhost:{port}/fopsshop")
     print(f" Social Lunch Page: http://localhost:{port}/fopslunchmd")
     
-    print("\n BINGO VOLUNTEER API ENDPOINTS:")
+    print("\n📡 CHATBOT API ENDPOINTS:")
+    print(f"  POST   http://localhost:{port}/api/chat")
+    print(f"  GET    http://localhost:{port}/api/chat/test")
+    print(f"  Gemini Available: {model is not None}")
+    
+    print("\n🎯 BINGO VOLUNTEER API ENDPOINTS:")
     print(f"  POST   http://localhost:{port}/api/bingo/volunteer")
     print(f"  GET    http://localhost:{port}/api/bingo/volunteers")
     print(f"  GET    http://localhost:{port}/api/bingo/test")
     
-    print("\n RERUNS SHOPPE API ENDPOINTS:")
+    print("\n🛍️ RERUNS SHOPPE API ENDPOINTS:")
     print(f"  POST   http://localhost:{port}/api/reruns/volunteer")
     print(f"  GET    http://localhost:{port}/api/reruns/volunteers")
     print(f"  GET    http://localhost:{port}/api/reruns/test")
     
-    print("\n SOCIAL LUNCH API ENDPOINTS:")
+    print("\n🍽️ SOCIAL LUNCH API ENDPOINTS:")
     print(f"  POST   http://localhost:{port}/api/social-lunch/volunteer")
     print(f"  POST   http://localhost:{port}/api/social-lunch/reserve")
     print(f"  GET    http://localhost:{port}/api/social-lunch/volunteers (admin)")
@@ -1152,7 +1313,7 @@ if __name__ == "__main__":
     print(f"  GET    http://localhost:{port}/api/social-lunch/stats (admin)")
     print(f"  GET    http://localhost:{port}/api/social-lunch/test")
     
-    print("\n Databases: bingo_volunteers.db, reruns_volunteers.db, social_lunch_volunteers.db")
+    print("\n💾 Databases: bingo_volunteers.db, reruns_volunteers.db, social_lunch_volunteers.db")
     print("=" * 70)
     
     app.run(debug=True, host=host, port=port, use_reloader=False)
