@@ -1,38 +1,54 @@
-# README
+# README — Friends of Poway Seniors (FOPS) Backend
 
-> This is a project to support AP Computer Science Principles (APCSP) as well as a UC articulated Data Structures course. It was crafted iteratively starting in 2020 to the present time.  The primary purposes are ...
+> This is the Flask backend server powering the **Friends of Poway Seniors (FOPS)** web platform — a nonprofit organization in Poway, California that supports seniors through programs like BINGO, Social Lunch, and the ReRuns Shoppe. This project was built on top of the AP CSP / Data Structures Flask starter template and extended with volunteer management, reservations, an AI chatbot, and event RSVP functionality.
 
-- Used as starter code for student projects for `AP CSP 1 and 2` and `Data Structures 1` curriculum.
-- Used to teach key principles in learning the Python Flask programming environment.
-- Used as a backend server to service API's in a frontend-to-backend pipeline. Review the `api` folder in the project for endpoints.
-- Contains a minimal frontend, mostly to support Administrative functionality using the `templates` folder and `Jinja2` to define UIs.
-- Contains SQL database code in the `model` folder to introduce concepts of persistent data and storage.  Perisistence folder is `instance/volumes` for generated SQLite3 db.
-- Contains capabilities for deployment and has been used with AWS, Ubuntu, Docker, docker-compose, and Nginx to `deploy a WSGI server`.
-- Contains APIs to support `user authentication and cookies`, a great deal of which was contributed by Aiden Wu a former student in CSP.  
+## What This Project Does
 
-## Flask Portfolio Starter
+- **Volunteer signup APIs** for three programs: BINGO, ReRuns Shoppe, and Social Lunch
+- **Lunch reservation system** for Social Lunch attendees
+- **AI-powered chatbot** (`/api/chat`) that answers questions about FOPS programs using Google Gemini (with a keyword-based fallback)
+- **Event RSVP system** via a separate `chatbot.py` blueprint using a `fops.db` SQLite database
+- **User authentication** using JWT cookies and Flask-Login
+- **MicroBlog / social post APIs** for community interaction
+- **Admin routes** for managing users, sections, personas, analytics, and more
+- **KASM integration** for managing virtual desktop users
+- **Deployment-ready** for AWS, Docker, Nginx, and WSGI
 
-Use this project to create a Flask Server.
+---
 
-- GitHub link: [flask](https://github.com/open-coding-society/flask), runtime link is published under the About on this same page.
-- `Use this as template` option is availble if you plan on making your instance of the repository.
-- `Fork` the repository if you plan to contribute though GitHub PRs.
+## Project Structure
 
-## The conventional way to get started
+```
+flask/
+├── main.py                  # App entry point — routes, volunteer DBs, chatbot, CORS config
+├── chatbot.py               # Blueprint: event DB, RSVP system, DeepSeek/fallback chatbot
+├── __init__.py              # Flask app + DB initialization
+├── api/                     # All REST API blueprints (user, gemini, microblog, etc.)
+├── model/                   # SQLAlchemy models (User, Post, MicroBlog, etc.)
+├── templates/               # Jinja2 HTML templates (login, admin pages, FOPS pages)
+├── static/                  # JS/CSS/image assets
+├── scripts/                 # DB init and migration scripts
+├── instance/volumes/        # SQLite database files (local persistence)
+├── bingo_volunteers.db      # Standalone SQLite DB for BINGO volunteers
+├── reruns_volunteers.db     # Standalone SQLite DB for ReRuns Shoppe volunteers
+├── social_lunch_volunteers.db # Standalone SQLite DB for Social Lunch volunteers
+└── fops.db                  # SQLite DB for chatbot events and RSVPs
+```
 
-> Quick steps that can be used with MacOS, WSL Ubuntu, or Ubuntu; this uses Python 3.9 or later as a prerequisite.
+---
 
-- Open a Terminal, clone a project and `cd` into the project directory.  Use a `different link` and name for `name` for clone to match your repo.
+## Getting Started
+
+> Requires Python 3.9+ on MacOS, WSL Ubuntu, or Ubuntu.
+
+### 1. Clone and enter the project
 
 ```bash
-mkdir -p ~/openccs; cd ~/opencs
-
-git clone https://github.com/open-coding-ocietyflask.git
-
+git clone https://github.com/open-coding-society/flask.git
 cd flask
 ```
 
-- Install python dependencies for Flask, etc.
+### 2. Set up a virtual environment and install dependencies
 
 ```bash
 python -m venv venv
@@ -40,226 +56,258 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Open project in VSCode
+### 3. Create your `.env` file
 
-- Prepare VSCode and run
-  - From Terminal run VSCode
+Create a `.env` file in the project root with the following:
 
-  ```bash
-  code .
-  ```
+```shell
+# Port configuration (optional override)
+# FLASK_PORT=8376
 
-  - Open Setting: Ctrl-Shift P or Cmd-Shift
-    - Search Python: Select Interpreter.
-    - Match interpreter to `which python` from terminal.
-    - Shourd be ./venv/bin/python
+# Default password for user resets
+DEFAULT_PASSWORD='123Qwerty!'
+DEFAULT_PFP='default.png'
 
-  - From Extensions Marketplace install `SQLite3 Editor`
-    - Open and view SQL database file `instance/volumes/user_management.db`
+# Seeded admin user
+ADMIN_USER='Thomas Edison'
+ADMIN_UID='toby'
+ADMIN_PASSWORD='123Toby!'
+ADMIN_PFP='toby.png'
 
-  - Make a local `.env` file in root of project to contain your secret passwords
+# Seeded teacher user
+TEACHER_USER='Nikola Tesla'
+TEACHER_UID='niko'
+TEACHER_PASSWORD='123Niko!'
+TEACHER_PFP='niko.png'
 
-  ```shell
-  # Port configuration
-  # FLASK_PORT=8001
-  # Admin user reset password 
-  DEFAULT_PASSWORD='123Qwerty!'
-  DEFAULT_PFP='default.png'
-  # Admin user defaults
-  ADMIN_USER='Thomas Edison'
-  ADMIN_UID='toby'
-  ADMIN_PASSWORD='123Toby!'
-  ADMIN_PFP='toby.png'
-  # Teacher user defaults
-  TEACHER_USER='Nikola Tesla'
-  TEACHER_UID='niko'
-  TEACHER_PASSWORD='123Niko!'
-  TEACHER_PFP='niko.png'
-  # Default user for testing 
-  USER_NAME='Grace Hopper'
-  USER_UID='hop'
-  USER_PASSWORD='123Hop!'
-  USER_PFP='hop.png'
-  # Convience user defaults
-  MY_NAME='John Mortensen'
-  MY_UID='jm1021'
-  MY_ROLE='admin'
-  # Obtain key, [Google AI Studio](https://aistudio.google.com/api-keys)
-  GEMINI_API_KEY=xxxxx
-  GEMINI_SERVER=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
-  # Obtain key, [Groq Console](https://console.groq.com/keys)
-  GROQ_API_KEY=xxxxx
-  GROQ_SERVER=https://api.groq.com/openai/v1/chat/completions
-  # GitHub Configuation
-  GITHUB_TOKEN=ghp_xxx
-  GITHUB_TARGET_TYPE=user  # Use 'organization' or 'user'
-  GITHUB_TARGET_NAME=Open-Coding-Society
-  # KASM Configuration (server is defaulted)
-  KASM_SERVER=https://kasm.opencodingsociety.com
-  KASM_API_KEY_SECRET=xxxx
-  KASM_API_KEY=xxx
-  # DB Configuration, AWS RDS
-  IS_PRODUCTION=false # false = LOCAL true = DEPLOYED
-  DB_USERNAME='admin'
-  DB_PASSWORD='xxxxx'
-  ```
+# Seeded default test user
+USER_NAME='Grace Hopper'
+USER_UID='hop'
+USER_PASSWORD='123Hop!'
+USER_PFP='hop.png'
 
-  - Make the database and init data.
-  
-  ```bash
-  ./scripts/db_init.py
-  ```
+# Your personal convenience user
+MY_NAME='John Mortensen'
+MY_UID='jm1021'
+MY_ROLE='admin'
 
-  - Explore newly created SQL database
-    - Navigate too instance/volumes
-    - View/open `user_management.db`
-    - Loook at `users` table in viewer
+# Google Gemini API — used by chatbot and /api/gemini
+# Get key at: https://aistudio.google.com/api-keys
+GEMINI_API_KEY=xxxxx
+GEMINI_SERVER=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
 
-  - Run the Project
-    - Select/open `main.py` in VSCode
-    - Start with Play button
-      - Play button sub option contains Debug
-    - Click on localhost:8087 in terminal to launch
-      - Output window will contain page to launch http://localhost:8587
-    - Login using your secrets from env
+# Groq API — alternative AI endpoint
+# Get key at: https://console.groq.com/keys
+GROQ_API_KEY=xxxxx
+GROQ_SERVER=https://api.groq.com/openai/v1/chat/completions
 
-  - Basic API test
-    - [Jokes](http://localhost:8587/api/jokes/)
+# GitHub integration
+GITHUB_TOKEN=ghp_xxx
+GITHUB_TARGET_TYPE=user
+GITHUB_TARGET_NAME=Open-Coding-Society
 
-### User Operations
-| Purpose | Correct Endpoint | What It Does |
-|---------|-----------------|--------------|
-| **Login** | `/api/authenticate` | Authenticates user & sets cookie |
-| **Get User** | `/api/id` | Gets current logged-in user |
-| **Signup** | `/api/user` | Creates new user account |
-| **Posts** | `/api/post/all` | Gets all social media posts |
-| **Create Post** | `/api/post` | Creates a new post |
-| **Gemini AI** | `/api/gemini` | Chat with AI assistant |
+# KASM virtual desktop configuration
+KASM_SERVER=https://kasm.opencodingsociety.com
+KASM_API_KEY_SECRET=xxxx
+KASM_API_KEY=xxx
 
-### MicroBlog Operations
+# Database mode
+IS_PRODUCTION=false   # false = SQLite local, true = AWS RDS
+DB_USERNAME='admin'
+DB_PASSWORD='xxxxx'
+```
+
+### 4. Initialize the database
+
+```bash
+python scripts/db_init.py
+```
+
+This creates `instance/volumes/user_management.db` with seeded users, personas, and microblog data.
+The FOPS-specific databases (`bingo_volunteers.db`, `reruns_volunteers.db`, `social_lunch_volunteers.db`, `fops.db`) are auto-created when the app starts.
+
+### 5. Run the app
+
+```bash
+python main.py
+```
+
+The server starts at **http://localhost:8376**. Login with credentials from your `.env`.
+
+---
+
+## FOPS-Specific Features
+
+### Volunteer Management
+
+Three separate SQLite databases handle volunteer signups for each program. Each has its own set of tables for volunteer info, availability days, preferred roles, and (where applicable) scheduling.
+
+| Program | Database | Tables |
+|---|---|---|
+| BINGO | `bingo_volunteers.db` | `volunteers`, `volunteer_availability`, `volunteer_roles`, `volunteer_schedule` |
+| ReRuns Shoppe | `reruns_volunteers.db` | `reruns_volunteers`, `reruns_availability`, `reruns_roles` |
+| Social Lunch | `social_lunch_volunteers.db` | `social_lunch_volunteers`, `social_lunch_availability`, `social_lunch_roles`, `lunch_reservations` |
+
+### Chatbot
+
+Two chatbot systems exist in this project:
+
+**1. `/api/chat` (defined in `main.py`)**
+Uses Google Gemini (`gemini-pro`) when a valid `GEMINI_API_KEY` is set. Falls back to keyword-matching if Gemini is unavailable. Knows about BINGO, Social Lunch, ReRuns Shoppe, volunteering, donations, hours, and contact info.
+
+**2. `/api/chat` (defined in `chatbot.py` blueprint)**
+Uses a DeepSeek API endpoint with a fallback. Pulls live event data from `fops.db` and injects it into the system prompt. Supports RSVP actions parsed from AI responses using `[ACTION:RSVP:event_id:name:phone]` syntax.
+
+> ⚠️ Both blueprints register the same `/api/chat` route. The `chatbot_bp` blueprint (registered last in `main.py`) takes precedence.
+
+### Event RSVP System (`fops.db`)
+
+Managed by `chatbot.py`. Tables:
+
+- `events` — stores upcoming events with capacity, date, time, and location
+- `rsvps` — records user registrations with duplicate prevention and capacity enforcement
+
+On first run, four sample events are seeded automatically (Senior Lunch, BINGO, Tax Prep, etc.).
+
+---
+
+## API Reference
+
+### FOPS Volunteer & Event APIs
+
+#### BINGO
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/bingo/volunteer` | None | Submit volunteer application |
+| GET | `/api/bingo/volunteers` | None | List all volunteers |
+| PUT | `/api/bingo/volunteer/<id>/status` | Admin | Update volunteer status |
+| GET | `/api/bingo/stats` | None | Volunteer count by status |
+| GET | `/api/bingo/test` | None | Health check |
+
+#### ReRuns Shoppe
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/reruns/volunteer` | None | Submit volunteer application |
+| GET | `/api/reruns/volunteers` | None | List all volunteers |
+| PUT | `/api/reruns/volunteer/<id>/status` | Admin | Update volunteer status |
+| GET | `/api/reruns/stats` | Admin | Volunteer stats |
+| GET | `/api/reruns/test` | None | Health check |
+
+#### Social Lunch
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/social-lunch/volunteer` | None | Submit volunteer application |
+| POST | `/api/social-lunch/reserve` | None | Make a lunch reservation |
+| GET | `/api/social-lunch/volunteers` | Admin | List all volunteers |
+| GET | `/api/social-lunch/reservations` | Admin | List reservations (filter by `?date=`) |
+| PUT | `/api/social-lunch/volunteer/<id>/status` | Admin | Update volunteer status |
+| GET | `/api/social-lunch/stats` | Admin | Volunteer and reservation counts |
+| GET | `/api/social-lunch/test` | None | Health check |
+
+#### Chatbot & Events
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/chat` | None | Send a message to the FOPS chatbot |
+| GET | `/api/chat/test` | None | Check chatbot health + Gemini status |
+| GET | `/api/events` | None | List upcoming events from `fops.db` |
+| GET | `/api/rsvps` | None | List RSVPs (filter by `?event_id=`) |
+
+### Core Platform APIs (inherited from Flask starter)
+
+#### User Operations
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/microblog` | Create new post |
-| GET | `/api/microblog` | Get posts (with filters) |
+| POST | `/api/authenticate` | Login — sets JWT cookie |
+| GET | `/api/id` | Get current logged-in user |
+| POST | `/api/user` | Create new user account |
+| GET | `/api/post/all` | Get all social posts |
+| POST | `/api/post` | Create a social post |
+| POST | `/api/gemini` | Chat with Gemini AI |
+
+#### MicroBlog
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/microblog` | Create post |
+| GET | `/api/microblog` | Get posts (filter: `?topicId=`, `?userId=`, `?search=`, `?limit=`) |
 | PUT | `/api/microblog` | Update post |
 | DELETE | `/api/microblog` | Delete post |
-
-**Query Parameters for GET:**
-- `?topicId=1` - Posts for specific topic
-- `?userId=123` - Posts by specific user  
-- `?search=flask` - Search content
-- `?limit=20` - Limit results
-
-### MicroBlog Interactions
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/microblog/reply` | Add reply to post |
-| POST | `/api/microblog/reaction` | Add reaction (👍, ❤️, etc.) |
+| POST | `/api/microblog/reply` | Add reply |
+| POST | `/api/microblog/reaction` | Add reaction |
 | DELETE | `/api/microblog/reaction` | Remove reaction |
 
-### Microblog Page Integration
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/microblog/page/<page_key>` | Get posts for specific page |
-| POST | `/api/microblog/topics/auto-create` | Auto-create topic for page |
-| GET | `/api/microblog/topics?pagePath=X` | Get topic by page path |
+---
 
-## Idea
+## Page Routes
 
-### Files and Directories in this Project
+| Route | Template | Description |
+|---|---|---|
+| `/` | `index.html` | Home page |
+| `/login` | `login.html` | Login form |
+| `/fopsbingo` | `fopsbingo.html` | BINGO volunteer signup page |
+| `/fopsshop` | `fopsshop.html` | ReRuns Shoppe volunteer page |
+| `/fopslunchmd` | `fopslunchmd.html` | Social Lunch reservation + volunteer page |
+| `/studytracker` | `studytracker.html` | Study tracker UI |
+| `/users/table2` | `u2table.html` | Admin user table |
+| `/sections/` | `sections.html` | Sections admin view |
+| `/kasm_users` | `kasm_users.html` | KASM virtual desktop users |
 
-The key files and directories in this project are in these online articles.
+---
 
-[Python/Flask](https://pages.opencodingsociety.com/python/flask)
+## CORS Configuration
 
-[Legacy - Flask Intro](https://pages.opencodingsociety.com/flask-overview)
+The server allows cross-origin requests from these frontend dev origins:
 
-### Implementation Summary
+- `http://localhost:4500`
+- `http://localhost:4000`
+- `http://localhost:8376`
 
-#### Oct 2025
+Update the CORS config in `main.py` if your frontend runs on a different port.
 
-> Updates for 2025-2026 school year.  Focus on documentation and API functionality.
+---
 
-- Work to make documentation materials useful.
-- Add gemini API's
-- Add microblog API's, social medai support
+## Database Management
 
-#### July 2024
+### Local Development Workflow
 
-> Updates for 2024 too 2025 school year.  Primary addition is a fully functional backend for JWT login system.
+```bash
+# 1. Initialize clean local database
+python scripts/db_init.py
 
-- Full support for JWT cookies
-- The API's for CRUD methods
-- The model definition User Class and related tables
-- SQLite and RDS support
-- Minimal Server side UI in Jinja2
+# 2. Pull real data from production
+python scripts/db_migrate-prod2sqlite.py
 
-#### July 2023
+# 3. Test your changes locally — thoroughly!
 
-> Updates for 2023 to 2024 school year.
+# 4. On production server (via Cockpit):
+cp sqlite.db backups/sqlite_YYYY-MM-DD.db
+git pull
+python scripts/db_init.py
 
-- Update README with File Descriptions (anatomy)
-- Add JWT and add security features using a SQLite user database
-- Add migrate.sh to support sqlite schema and data upgrade
+# 5. Push local DB to production (requires prod ADMIN_PASSWORD in .env)
+python scripts/db_restore-sqlite2prod.py
+```
 
-#### January 2023
+> The four FOPS-specific databases (`bingo_volunteers.db`, `reruns_volunteers.db`, `social_lunch_volunteers.db`, `fops.db`) are managed separately from the main `user_management.db` and are not part of the migration scripts. Back them up manually if needed.
 
-> This project focuses on being a Python backend server.  Intentions are to only have simple UIs an perhaps some Administrative UIs.
+---
 
-#### September 2021
+## Deployment
 
-> Basic UI elements were implemented showing server side Flask with Jinja 2 capabilities.
+This project is configured for production deployment with:
 
-- The Project entry point is main.py, this enables the Flask Web App and provides the capability to render templates (HTML files)
-- The main.py is the  Web Server Gateway Interface, essentially it contains an HTTP route and HTML file relationship.  The Python code constructs WSGI relationships for index, kangaroos, walruses, and hawkers.
-- The project structure contains many directories and files.  The template directory (containing HTML files) and static directory (containing JS files) are common standards for HTML coding.  Static files can be pictures and videos, in this project they are mostly javascript backgrounds.
-- WSGI templates: index.html, kangaroos.html, ... are aligned with routes in main.py.
-- Other templates support WSGI templates.  The base.html template contains common Head, Style, Body, and Script definitions.  WSGI templates often "include" or "extend" these templates.  This is a way to reuse code.
-- The VANTA javascript statics (backgrounds) are shown and defaulted in base.html (birds) but are block-replaced as needed in other templates (solar, net, ...)
-- The Bootstrap Navbar code is in navbar.html. The base.html code includes navbar.html.  The WSGI html files extend base.html files.  This is a process of management and correlation to optimize code management.  For instance, if the menu changes discovery of navbar.html is easy, one change reflects on all WSGI html files.
-- Jinja2 variables usage is to isolate data and allow redefinitions of attributes in templates.  Observe "{% set variable = %}" syntax for definition and "{{ variable }}" for reference.
-- The base.html uses a combination of Bootstrap grid styling and custom CSS styling.  Grid styling in observation with the "<Col-3>" markers.  A Bootstrap Grid has a width of 12, thus four "Col-3" markers could fit on a Grid row.
-- A key purpose of this project is to embed links to other content.  The "href=" definition embeds hyperlinks into the rendered HTML.  The base.html file shows usage of "href={{github}}", the "{{github}}" is a Jinja2 variable.  Jinja2 variables are pre-processed by Python, a variable swap with value, before being sent to the browser.
+- **Docker + docker-compose** for containerization
+- **Nginx** as a reverse proxy
+- **Gunicorn** as the WSGI server
+- **AWS RDS** for the production database (set `IS_PRODUCTION=true` in `.env`)
 
-## Database Management Workflow with Scripts
+Set `IS_PRODUCTION=true` and configure `DB_USERNAME` / `DB_PASSWORD` to switch from SQLite to RDS.
 
-If you are working with the database, follow the below procedure to safely interact with the remote DB while applying changes locally. Certain scripts require flask to be running while others don't, so follow the instructions that the scripts provide.
+---
 
-Note, steps 1,2,3,5 are on your development (LOCAL) server. You need to update your .env on development server and be sure all PRs are completed, pulled, and tested before you start pushing to production.
+## Additional Resources
 
-0. Be sure ADMIN_PASSWORD is set in .env.  You will need a venv for the python scripts.
-
-1. Initialize your local DB with clean data. For example, this would be good to see that a schema update works correctly.
-   ```bash
-   python scripts/db_init.py
-   ```
-
-2. Pull the database content from the remote DB onto your local machine. This allows you to work with real data and test that real data works with your local changes.
-   ```bash
-   python scripts/db_migrate-prod2sqlite.py
-   ```
-
-3. TEST TEST TEST! Make sure your changes work correctly with the local DB.
-
-4. Now go onto the remote DB and back up the db using `cp sqlite.db backups/sqlite_year-month-day.db` in the volumes directory of the flask directory on cockpit. Then, run `git pull` to ensure that flask has been updated with the latest code. Then, run `python scripts/db_init.py` again to ensure that the remote DB schema is up to date with the latest code.
-
-5. Once you are satisfied with your changes, push the local DB content to the remote DB. This requires authentication, so you need to replace the ADMIN_PASSWORD in the .env file of "flask" with the production admin password.
-   ```bash
-   python scripts/db_restore-sqlite2prod.py
-   ```
-
-### Condensed DB/Schema update simple steps
-*(a copy of what's above, just condensed)*
-
-1. Initialize local DB: `python scripts/db_init.py`
-
-2. Pull production data to local: `python scripts/db_migrate-prod2sqlite.py`
-
-3. Test your changes locally
-
-4. On production server (in cockpit):
-   - Backup DB in volumes directory: `cp sqlite.db backups/sqlite_year-month-day.db`
-   - Update code: `git pull`
-   - Update schema: `python scripts/db_init.py`
-
-5. Push local changes to production: `python scripts/db_restore-sqlite2prod.py` (Requires admin password from production in .env)
+- [Python/Flask Project Docs](https://pages.opencodingsociety.com/python/flask)
+- [Legacy Flask Intro](https://pages.opencodingsociety.com/flask-overview)
+- [GitHub Repository](https://github.com/open-coding-society/flask)
+- [Google AI Studio (Gemini Keys)](https://aistudio.google.com/api-keys)
+- [Groq Console (API Keys)](https://console.groq.com/keys)
